@@ -1,0 +1,57 @@
+# Render Blueprint for QualityAgent
+# Deploy: Render Dashboard -> New -> Blueprint -> select this repository.
+# The API is built from apps/api/Dockerfile; Postgres and Key Value (Redis) are
+# provisioned automatically. FRONTEND_URL / ALLOWED_ORIGINS are prompted on first
+# sync (you can leave them empty and fill them in once the Vercel domain exists).
+
+databases:
+  - name: qualityagent-db
+    databaseName: qualityagent
+    user: qualityagent
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "16"
+
+services:
+  - type: keyvalue
+    name: qualityagent-redis
+    plan: free
+    region: frankfurt
+    ipAllowList: [] # internal connections only
+    maxmemoryPolicy: noeviction
+
+  - type: web
+    name: qualityagent-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: qualityagent-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qualityagent-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: FRONTEND_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: DEMO_TENANT_ID
+        value: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+      - key: ALLOW_DEMO_LOGIN
+        value: "true"
