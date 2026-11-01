@@ -223,7 +223,7 @@ async def create_plan(
         )
     )
     if existing:
-        raise AppValidationError(f"×ª×•×›× ×™×ª ×‘×“×™×§×” ×¢× ×§×•×“ {data.code} ×›×‘×¨ ×§×™×™×ž×ª")
+        raise AppValidationError(f"תוכנית בדיקה עם קוד {data.code} כבר קיימת")
 
     await _validate_product_site(db, tenant.id, data.product_id, data.site_id)
 
@@ -441,7 +441,7 @@ async def add_result(
         raise NotFoundError("Inspection", str(inspection_id))
 
     if inspection.status in (InspectionStatus.PASSED, InspectionStatus.FAILED):
-        raise AppValidationError("×œ× × ×™×ª×Ÿ ×œ×”×•×¡×™×£ ×ª×•×¦××•×ª ×œ×‘×“×™×§×” ×©×”×¡×ª×™×™×ž×”")
+        raise AppValidationError("לא ניתן להוסיף תוצאות לבדיקה שהסתיימה")
 
     inspection.results.append(InspectionResult(**data.model_dump(), tenant_id=tenant.id))
     if inspection.status == InspectionStatus.PLANNED:
@@ -499,10 +499,10 @@ async def complete_inspection(
         raise NotFoundError("Inspection", str(inspection_id))
 
     if inspection.status in (InspectionStatus.PASSED, InspectionStatus.FAILED):
-        raise AppValidationError("×”×‘×“×™×§×” ×›×‘×¨ ×”×•×©×œ×ž×”")
+        raise AppValidationError("הבדיקה כבר הושלמה")
 
     if not inspection.results:
-        raise AppValidationError("×œ× × ×™×ª×Ÿ ×œ×”×©×œ×™× ×‘×“×™×§×” ×œ×œ× ×ª×•×¦××•×ª")
+        raise AppValidationError("לא ניתן להשלים בדיקה ללא תוצאות")
 
     _recount(inspection)
     now = datetime.now(timezone.utc)
@@ -521,11 +521,11 @@ async def complete_inspection(
             ncr = Nonconformity(
                 tenant_id=tenant.id,
                 number=await generate_ncr_number(tenant.id, db),
-                title=f"××™-×”×ª××ž×” ×‘×‘×“×™×§×” {inspection.number}",
+                title=f"אי-התאמה בבדיקה {inspection.number}",
                 description=(
-                    f"×‘×‘×“×™×§×ª ××™×›×•×ª {inspection.number} × ×ž×¦××• {inspection.failed_count} "
-                    f"×ž×ž×¦××™× ×—×•×¨×’×™× ×ž×ª×•×š {inspection.passed_count + inspection.failed_count} ×‘×“×™×§×•×ª.\n"
-                    f"×ž××¤×™×™× ×™× ×—×•×¨×’×™×: {', '.join(failed_characteristics)}"
+                    f"בבדיקת איכות {inspection.number} נמצאו {inspection.failed_count} "
+                    f"ממצאים חורגים מתוך {inspection.passed_count + inspection.failed_count} בדיקות.\n"
+                    f"מאפיינים חורגים: {', '.join(failed_characteristics)}"
                 ),
                 severity=NCRSeverity.MAJOR,
                 status=NCRStatus.OPEN,

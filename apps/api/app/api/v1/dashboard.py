@@ -90,7 +90,7 @@ async def get_dashboard_metrics(
     trend_rows = trend_result.all()
 
     # Ensure we have 6 months (fill missing with 0)
-    months_hebrew = ["×™× ×•", "×¤×‘×¨", "×ž×¨×¥", "××¤×¨", "×ž××™", "×™×•× ", "×™×•×œ", "××•×’", "×¡×¤×˜", "××•×§", "× ×•×‘", "×“×¦×ž"]
+    months_hebrew = ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ", "יול", "אוג", "ספט", "אוק", "נוב", "דצמ"]
     trend_counts = {row.month.month: row.count for row in trend_rows}
     current_month = datetime.now(timezone.utc).month
     trend_data = []
@@ -185,19 +185,19 @@ def generate_ai_insight(open_ncrs: int, open_capas: int, overdue_tasks: int, rec
     insights = []
 
     if open_ncrs > 10:
-        insights.append(f"×™×© {open_ncrs} ×—×¨×™×’×•×ª ×¤×ª×•×—×•×ª - ×ž×•×ž×œ×¥ ×œ×ª×¢×“×£ ×˜×™×¤×•×œ ×‘×—×¨×™×’×•×ª ×—×ž×•×¨×•×ª.")
+        insights.append(f"יש {open_ncrs} חריגות פתוחות - מומלץ לתעדף טיפול בחריגות חמורות.")
 
     if open_capas > 5:
-        insights.append(f"{open_capas} ×¤×¢×•×œ×•×ª ×ž×ª×§× ×•×ª ×¤×ª×•×—×•×ª - ×‘×“×•×§ ×”×ª×§×“×ž×•×ª ×•××¤×§×˜×™×‘×™×•×ª.")
+        insights.append(f"{open_capas} פעולות מתקנות פתוחות - בדוק התקדמות ואפקטיביות.")
 
     if overdue_tasks > 0:
-        insights.append(f"{overdue_tasks} ×ž×©×™×ž×•×ª ×‘××™×—×•×¨ - × ×“×¨×©×ª ×”×ª×¢×¨×‘×•×ª × ×™×”×•×œ×™×ª.")
+        insights.append(f"{overdue_tasks} משימות באיחור - נדרשת התערבות ניהולית.")
 
     # Check for repeated defects (would need more complex query in production)
     if recent_ncrs_count >= 3:
-        insights.append("×–×•×”×• ×ž×¡×¤×¨ ×—×¨×™×’×•×ª ×‘×™×ž×™× ×”××—×¨×•× ×™× - ×”×¡×•×›×Ÿ ×‘×•×“×§ ×ª×‘× ×™×•×ª ×—×•×–×¨×•×ª.")
+        insights.append("זוהו מספר חריגות בימים האחרונים - הסוכן בודק תבניות חוזרות.")
 
     if not insights:
-        insights.append("×ž×“×“×™ ×”××™×›×•×ª ×‘×˜×•×•×— ×”×ª×§×™×Ÿ. ×”×ž×©×š ×ž×¢×§×‘ ×©×•×˜×£.")
+        insights.append("מדדי האיכות בטווח התקין. המשך מעקב שוטף.")
 
     return " ".join(insights)

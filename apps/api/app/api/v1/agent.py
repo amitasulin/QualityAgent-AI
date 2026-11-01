@@ -191,7 +191,7 @@ async def chat_with_agent(
     response_text = ""
     recommendations = []
 
-    if "×—×¨×™×’×”" in message or "ncr" in message or "nonconform" in message:
+    if "חריגה" in message or "ncr" in message or "nonconform" in message:
         # Query recent NCRs
         ncr_result = await db.execute(
             select(Nonconformity)
@@ -202,13 +202,13 @@ async def chat_with_agent(
         ncrs = ncr_result.scalars().all()
 
         if ncrs:
-            response_text = f"×ž×¦××ª×™ {len(ncrs)} ×—×¨×™×’×•×ª ××—×¨×•× ×•×ª:\n"
+            response_text = f"מצאתי {len(ncrs)} חריגות אחרונות:\n"
             for ncr in ncrs:
                 response_text += f"- {ncr.number}: {ncr.title} ({ncr.status.value})\n"
         else:
-            response_text = "×œ× × ×ž×¦××• ×—×¨×™×’×•×ª ×‘×ž×¢×¨×›×ª."
+            response_text = "לא נמצאו חריגות במערכת."
 
-    elif "×¤×¢×•×œ×” ×ž×ª×§× ×ª" in message or "capa" in message:
+    elif "פעולה מתקנת" in message or "capa" in message:
         capa_result = await db.execute(
             select(CorrectiveAction)
             .where(CorrectiveAction.tenant_id == tenant.id)
@@ -218,13 +218,13 @@ async def chat_with_agent(
         capas = capa_result.scalars().all()
 
         if capas:
-            response_text = f"×ž×¦××ª×™ {len(capas)} ×¤×¢×•×œ×•×ª ×ž×ª×§× ×•×ª:\n"
+            response_text = f"מצאתי {len(capas)} פעולות מתקנות:\n"
             for capa in capas:
-                response_text += f"- {capa.title}: ×ª××¨×™×š ×™×¢×“ {capa.due_date} ({capa.status.value})\n"
+                response_text += f"- {capa.title}: תאריך יעד {capa.due_date} ({capa.status.value})\n"
         else:
-            response_text = "×œ× × ×ž×¦××• ×¤×¢×•×œ×•×ª ×ž×ª×§× ×•×ª ×‘×ž×¢×¨×›×ª."
+            response_text = "לא נמצאו פעולות מתקנות במערכת."
 
-    elif "×”×ž×œ×¦" in message or "recommend" in message:
+    elif "המלצ" in message or "recommend" in message:
         rec_result = await db.execute(
             select(AgentRecommendation)
             .where(
@@ -237,22 +237,22 @@ async def chat_with_agent(
         recs = rec_result.scalars().all()
 
         if recs:
-            response_text = f"×™×© {len(recs)} ×”×ž×œ×¦×•×ª ×ž×ž×ª×™× ×•×ª:\n"
+            response_text = f"יש {len(recs)} המלצות ממתינות:\n"
             for rec in recs:
                 response_text += f"- {rec.title} ({rec.severity})\n"
                 recommendations.append(AgentRecommendationResponse.model_validate(rec))
         else:
-            response_text = "××™×Ÿ ×”×ž×œ×¦×•×ª ×ž×ž×ª×™× ×•×ª ×›×¨×’×¢."
+            response_text = "אין המלצות ממתינות כרגע."
 
     else:
         response_text = (
-            "×× ×™ ×”×¡×•×›×Ÿ ×”×¤×¨×•××§×˜×™×‘×™ ×©×œ QualityAgent. "
-            "×× ×™ ×™×›×•×œ ×œ×¢×–×•×¨ ×œ×š ×¢×:\n"
-            "- ×—×™×¤×•×© ×—×¨×™×’×•×ª (NCR)\n"
-            "- ×ž×¢×§×‘ ×¤×¢×•×œ×•×ª ×ž×ª×§× ×•×ª (CAPA)\n"
-            "- ×”×¦×’×ª ×”×ž×œ×¦×•×ª ××•×˜×•×ž×˜×™×•×ª\n"
-            "- × ×™×ª×•×— ×ž×’×ž×•×ª ××™×›×•×ª\n\n"
-            "×ž×” ×ª×¨×¦×” ×œ×“×¢×ª?"
+            "אני הסוכן הפרואקטיבי של QualityAgent. "
+            "אני יכול לעזור לך עם:\n"
+            "- חיפוש חריגות (NCR)\n"
+            "- מעקב פעולות מתקנות (CAPA)\n"
+            "- הצגת המלצות אוטומטיות\n"
+            "- ניתוח מגמות איכות\n\n"
+            "מה תרצה לדעת?"
         )
 
     return AgentChatResponse(
@@ -311,12 +311,12 @@ async def run_proactive_checks(run: AgentRun, db: AsyncSession, tenant_id: UUID)
                 tenant_id=tenant_id,
                 type=AgentRecommendationType.REPEATED_DEFECT,
                 severity="warning",
-                title=f"×¤×’× ×—×•×–×¨: {defect_code} ×‘×ž×•×¦×¨ {product_id}",
-                description=f"×–×•×”×• {len(ncrs)} ×—×¨×™×’×•×ª ×©×œ {defect_code} ×‘-7 ×™×ž×™× ××—×¨×•× ×™×",
-                rationale="××•×ª×• ×§×•×“ ×¤×’× ×—×•×–×¨ ×‘××•×ª×• ×ž×•×¦×¨, ×ž×¦×‘×™×¢ ×¢×œ ×‘×¢×™×” ×©×™×˜×ª×™×ª",
+                title=f"פגם חוזר: {defect_code} במוצר {product_id}",
+                description=f"זוהו {len(ncrs)} חריגות של {defect_code} ב-7 ימים אחרונים",
+                rationale="אותו קוד פגם חוזר באותו מוצר, מצביע על בעיה שיטתית",
                 confidence="high",
                 evidence=[{"type": "ncr", "id": str(n.id), "number": n.number} for n in ncrs],
-                missing_information=["× ×ª×•× ×™ ×›×™×•×œ ×ª×‘× ×™×ª ×¢×“×›× ×™×™×", "×¨×©×•×ž×•×ª ×ž×©×ž×¨×ª ×ž×¤×¢×™×œ"],
+                missing_information=["נתוני כיול תבנית עדכניים", "רשומות משמרת מפעיל"],
                 recommended_action={"type": "START_RCA", "reason": "Recurring dimensional deviation", "requires_approval": True},
                 status=AgentRecommendationStatus.PENDING,
             )
@@ -340,9 +340,9 @@ async def run_proactive_checks(run: AgentRun, db: AsyncSession, tenant_id: UUID)
             tenant_id=tenant_id,
             type=AgentRecommendationType.OVERDUE_CAPA,
             severity="info",
-            title=f"×¤×¢×•×œ×” ×ž×ª×§× ×ª ×‘××™×—×•×¨: {capa.title}",
-            description=f"CAPA ×¢×‘×•×¨ NCR {capa.ncr_id} ××ž×•×¨×” ×œ×”×¡×ª×™×™× ×‘-{capa.due_date}, ×˜×¨× ×”×•×©×œ×ž×”",
-            rationale="×ž×•×¢×“ ×”×™×¢×“ ×¢×‘×¨ ×•×”×¤×¢×•×œ×” ×œ× ×”×¡×ª×™×™×ž×”",
+            title=f"פעולה מתקנת באיחור: {capa.title}",
+            description=f"CAPA עבור NCR {capa.ncr_id} אמורה להסתיים ב-{capa.due_date}, טרם הושלמה",
+            rationale="מועד היעד עבר והפעולה לא הסתיימה",
             confidence="medium",
             evidence=[{"type": "capa", "id": str(capa.id)}],
             missing_information=[],

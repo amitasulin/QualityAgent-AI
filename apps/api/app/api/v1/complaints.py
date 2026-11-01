@@ -398,7 +398,7 @@ async def create_ncr_from_complaint(
     ncr = Nonconformity(
         tenant_id=tenant.id,
         number=await generate_ncr_number(tenant.id, db),
-        title=f"×ª×œ×•× ×ª ×œ×§×•×— {complaint.number}: {complaint.title}",
+        title=f"תלונת לקוח {complaint.number}: {complaint.title}",
         description=complaint.description,
         severity=SEVERITY_MAP.get(complaint.severity, NCRSeverity.MINOR),
         status=NCRStatus.OPEN,
