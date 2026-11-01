@@ -81,6 +81,23 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleComplete = async () => {
+    if (!task) return;
+    setCompleting(true);
+    setActionError(null);
+    try {
+      const updated = await api.completeTask(task.id);
+      setTask(updated);
+    } catch (err) {
+      console.error(err);
+      setActionError('סימון המשימה כהושלמה נכשל');
+    } finally {
+      setCompleting(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -106,11 +123,11 @@ export default function TaskDetailPage() {
     <MainLayout>
       <div className="space-y-6">
         <Link
-          href="/"
+          href="/tasks"
           className="inline-flex items-center gap-1.5 text-sm text-secondary-500 hover:text-primary-700 transition-colors"
         >
           <ArrowRight className="h-4 w-4" />
-          חזרה ללוח הבקרה
+          חזרה למשימות
         </Link>
 
         {loading ? (
@@ -127,9 +144,9 @@ export default function TaskDetailPage() {
             <CardBody className="p-12 text-center">
               <AlertTriangle className="h-10 w-10 text-danger-500 mx-auto" />
               <p className="mt-3 text-danger-600">{error || 'המשימה לא נמצאה'}</p>
-              <Link href="/">
+              <Link href="/tasks">
                 <Button variant="secondary" className="mt-4">
-                  חזרה ללוח הבקרה
+                  חזרה למשימות
                 </Button>
               </Link>
             </CardBody>
@@ -156,6 +173,20 @@ export default function TaskDetailPage() {
                       <p className="text-sm text-secondary-500 mt-1">
                         תאריך יעד: {formatDateTime(task.due_date)}
                       </p>
+                    )}
+                    {task.status !== 'done' && task.status !== 'cancelled' && (
+                      <Button
+                        className="mt-4"
+                        size="sm"
+                        onClick={handleComplete}
+                        loading={completing}
+                      >
+                        {!completing && <CheckCircle2 className="h-4 w-4" />}
+                        סמן כהושלמה
+                      </Button>
+                    )}
+                    {actionError && (
+                      <p className="mt-2 text-sm text-danger-600">{actionError}</p>
                     )}
                   </div>
                 </div>

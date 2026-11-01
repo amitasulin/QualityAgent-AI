@@ -200,17 +200,20 @@ export default function DashboardPage() {
               className="h-full transition-shadow group-hover:shadow-md"
             />
           </Link>
-          <KpiCard
-            label="משימות באיחור"
-            value={metrics?.overdue_tasks ?? 0}
-            hint={
-              (metrics?.overdue_tasks ?? 0) > 0
-                ? 'דורש טיפול מיידי'
-                : 'אין משימות באיחור — כל הכבוד'
-            }
-            icon={Clock}
-            tone="secondary"
-          />
+          <Link href="/tasks?overdue=true" className="block group">
+            <KpiCard
+              label="משימות באיחור"
+              value={metrics?.overdue_tasks ?? 0}
+              hint={
+                (metrics?.overdue_tasks ?? 0) > 0
+                  ? 'דורש טיפול מיידי'
+                  : 'אין משימות באיחור — כל הכבוד'
+              }
+              icon={Clock}
+              tone="secondary"
+              className="h-full transition-shadow group-hover:shadow-md"
+            />
+          </Link>
         </div>
 
         {/* Main grid */}

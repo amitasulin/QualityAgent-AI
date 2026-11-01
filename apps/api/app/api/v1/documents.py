@@ -39,7 +39,13 @@ async def create_document(
         from app.core.exceptions import ConflictError
         raise ConflictError("Document with this code already exists")
 
-    document = Document(**document_data.model_dump(), tenant_id=tenant.id, owner_id=current_user.id)
+    document_values = document_data.model_dump()
+    document_values.pop("owner_id", None)
+    document = Document(
+        **document_values,
+        tenant_id=tenant.id,
+        owner_id=current_user.id,
+    )
     db.add(document)
     await db.flush()
     await db.refresh(document)

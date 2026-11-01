@@ -1,17 +1,27 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, FolderOpen, RefreshCw, Search } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, ChevronLeft, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { Input, Select } from '@/components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import {
+  DOCUMENT_FIELDS,
+  DOCUMENT_INITIAL,
+  DOCUMENT_STATUS_LABELS,
+  DOCUMENT_STATUS_OPTIONS,
+  DOCUMENT_STATUS_VARIANTS,
+  textToTags,
+} from '@/lib/documents';
 
 interface Document {
   id: string;
@@ -23,36 +33,25 @@ interface Document {
   effective_until?: string | null;
 }
 
-const statusLabels: Record<string, string> = {
-  draft: 'טיוטה',
-  under_review: 'בבדיקה',
-  approved: 'מאושר',
-  published: 'פורסם',
-  archived: 'בארכיון',
-  obsolete: 'מיושן',
-};
-
-const statusVariants: Record<string, 'secondary' | 'warning' | 'success' | 'primary'> = {
-  draft: 'secondary',
-  under_review: 'warning',
-  approved: 'primary',
-  published: 'success',
-  archived: 'secondary',
-  obsolete: 'secondary',
-};
-
 export default function DocumentsPage() {
   const [items, setItems] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
   const [total, setTotal] = useState(0);
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchDocuments = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getDocuments({ page: 1, page_size: 50, search: search || undefined });
+      const data = await api.getDocuments({
+        page: 1,
+        page_size: 50,
+        search: search || undefined,
+        status: status || undefined,
+      });
       setItems(data.items || []);
       setTotal(data.total || 0);
     } catch (err) {
@@ -61,11 +60,21 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, status]);
 
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  const handleCreate = async (payload: Record<string, unknown>) => {
+    if (typeof payload.tags === 'string') {
+      payload.tags = textToTags(payload.tags);
+    }
+    await api.createDocument(payload);
+    await fetchDocuments();
+  };
+
+  const hasActiveFilters = Boolean(search || status);
 
   return (
     <MainLayout>
@@ -76,22 +85,36 @@ export default function DocumentsPage() {
           badge={<Badge variant="primary">{total} מסמכים</Badge>}
           subtitle="נהלים, הוראות עבודה ומפרטים"
           actions={
-            <Button variant="secondary" onClick={fetchDocuments} loading={loading}>
-              {!loading && <RefreshCw className="h-4 w-4" />}
-              רענון
-            </Button>
+            <>
+              <Button variant="secondary" onClick={fetchDocuments} loading={loading}>
+                {!loading && <RefreshCw className="h-4 w-4" />}
+                רענון
+              </Button>
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4" />
+                מסמך חדש
+              </Button>
+            </>
           }
         />
 
         <Card>
           <CardBody className="p-4">
-            <div className="relative max-w-sm">
-              <Search className="h-4 w-4 text-secondary-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <Input
-                placeholder="חיפוש לפי קוד או כותרת..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pr-9"
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="h-4 w-4 text-secondary-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Input
+                  placeholder="חיפוש לפי קוד או כותרת..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pr-9"
+                />
+              </div>
+              <Select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                options={[{ value: '', label: 'כל הסטטוסים' }, ...DOCUMENT_STATUS_OPTIONS]}
+                className="w-48"
               />
             </div>
           </CardBody>
@@ -124,8 +147,30 @@ export default function DocumentsPage() {
             ) : items.length === 0 ? (
               <EmptyState
                 icon={FolderOpen}
-                title="לא נמצאו מסמכים"
-                description={search ? 'נסה לשנות את מונח החיפוש' : 'מסמכים ונהלים יופיעו כאן לאחר העלאתם'}
+                title={hasActiveFilters ? 'לא נמצאו מסמכים תואמים' : 'לא נמצאו מסמכים'}
+                description={
+                  hasActiveFilters
+                    ? 'נסה לשנות את החיפוש או את הסינון'
+                    : 'מסמכים ונהלים יופיעו כאן לאחר יצירתם'
+                }
+                action={
+                  hasActiveFilters ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setSearch('');
+                        setStatus('');
+                      }}
+                    >
+                      איפוס סינון
+                    </Button>
+                  ) : (
+                    <Button onClick={() => setShowCreate(true)}>
+                      <Plus className="h-4 w-4" />
+                      מסמך חדש
+                    </Button>
+                  )
+                }
               />
             ) : (
               <div className="overflow-x-auto">
@@ -138,19 +183,38 @@ export default function DocumentsPage() {
                       <TableHead className="w-28">סטטוס</TableHead>
                       <TableHead className="w-36">תוקף מ־</TableHead>
                       <TableHead className="w-36">תוקף עד</TableHead>
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {items.map((d) => (
-                      <TableRow key={d.id}>
+                      <TableRow key={d.id} className="group">
                         <TableCell>
-                          <span className="font-mono text-xs font-semibold text-secondary-700">{d.code}</span>
+                          <Link
+                            href={`/documents/${d.id}`}
+                            className="font-mono text-xs font-semibold text-secondary-700 group-hover:text-primary-700"
+                          >
+                            {d.code}
+                          </Link>
                         </TableCell>
-                        <TableCell className="font-medium text-secondary-900">{d.title}</TableCell>
-                        <TableCell className="text-sm text-secondary-600">{d.category || '—'}</TableCell>
+                        <TableCell className="max-w-[360px]">
+                          <Link href={`/documents/${d.id}`} className="block">
+                            <div className="font-medium text-secondary-900 group-hover:text-primary-700 truncate">
+                              {d.title}
+                            </div>
+                            {d.category && (
+                              <div className="text-xs text-secondary-400 truncate mt-0.5">
+                                {d.category}
+                              </div>
+                            )}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-sm text-secondary-600">
+                          {d.category || '—'}
+                        </TableCell>
                         <TableCell>
-                          <Badge variant={statusVariants[d.status] || 'secondary'}>
-                            {statusLabels[d.status] || d.status}
+                          <Badge variant={DOCUMENT_STATUS_VARIANTS[d.status] || 'secondary'}>
+                            {DOCUMENT_STATUS_LABELS[d.status] || d.status}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-secondary-500 whitespace-nowrap">
@@ -158,6 +222,13 @@ export default function DocumentsPage() {
                         </TableCell>
                         <TableCell className="text-sm text-secondary-500 whitespace-nowrap">
                           {d.effective_until ? formatDate(d.effective_until) : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Link href={`/documents/${d.id}`}>
+                            <Button variant="ghost" size="sm" className="p-1.5" aria-label="פתח מסמך">
+                              <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -168,6 +239,18 @@ export default function DocumentsPage() {
           </CardBody>
         </Card>
       </div>
+
+      <CreateEntityModal
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        title="מסמך חדש"
+        description="הגדר קוד, כותרת וסטטוס — ניתן להוסיף גרסאות לאחר היצירה"
+        fields={DOCUMENT_FIELDS}
+        initialValues={DOCUMENT_INITIAL}
+        submitLabel="צור מסמך"
+        errorFallback="יצירת המסמך נכשלה"
+        onSubmit={handleCreate}
+      />
     </MainLayout>
   );
 }

@@ -9,7 +9,16 @@ export type FormValues = Record<string, FormValue>;
 export interface FieldDef {
   name: string;
   label: string;
-  type?: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'checkbox' | 'select';
+  type?:
+    | 'text'
+    | 'email'
+    | 'tel'
+    | 'number'
+    | 'date'
+    | 'datetime-local'
+    | 'textarea'
+    | 'checkbox'
+    | 'select';
   required?: boolean;
   placeholder?: string;
   helperText?: string;

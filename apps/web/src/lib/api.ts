@@ -237,6 +237,31 @@ class ApiClient {
     return response.data;
   }
 
+  async getDocument(id: string) {
+    const response = await this.client.get(`/documents/${id}`);
+    return response.data;
+  }
+
+  async createDocument(data: Record<string, unknown>) {
+    const response = await this.client.post('/documents', data);
+    return response.data;
+  }
+
+  async updateDocument(id: string, data: Record<string, unknown>) {
+    const response = await this.client.patch(`/documents/${id}`, data);
+    return response.data;
+  }
+
+  async getDocumentVersions(id: string) {
+    const response = await this.client.get(`/documents/${id}/versions`);
+    return response.data;
+  }
+
+  async createDocumentVersion(id: string, data: Record<string, unknown>) {
+    const response = await this.client.post(`/documents/${id}/versions`, data);
+    return response.data;
+  }
+
   // Nonconformities
   async getNonconformities(params?: Record<string, unknown>) {
     const response = await this.client.get('/nonconformities', { params });

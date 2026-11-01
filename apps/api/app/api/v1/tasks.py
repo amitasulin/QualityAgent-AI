@@ -53,6 +53,7 @@ async def list_tasks(
     priority: Optional[TaskPriority] = Query(None),
     assignee_id: Optional[UUID] = Query(None),
     task_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Search in title and description"),
     my_tasks: bool = Query(False, description="Filter to current user's tasks"),
     overdue: bool = Query(False, description="Filter overdue tasks"),
     db: AsyncSession = Depends(get_db),
@@ -75,6 +76,10 @@ async def list_tasks(
         query = query.where(Task.priority == priority)
     if task_type:
         query = query.where(Task.task_type == task_type)
+    if search:
+        query = query.where(
+            or_(Task.title.ilike(f"%{search}%"), Task.description.ilike(f"%{search}%"))
+        )
     if overdue:
         query = query.where(
             Task.due_date < datetime.now(timezone.utc),
