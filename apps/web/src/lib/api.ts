@@ -174,15 +174,60 @@ class ApiClient {
     return response.data;
   }
 
+  async getProduct(id: string) {
+    const response = await this.client.get(`/products/${id}`);
+    return response.data;
+  }
+
+  async createProduct(data: Record<string, unknown>) {
+    const response = await this.client.post('/products', data);
+    return response.data;
+  }
+
+  async updateProduct(id: string, data: Record<string, unknown>) {
+    const response = await this.client.patch(`/products/${id}`, data);
+    return response.data;
+  }
+
   // Customers
   async getCustomers(params?: Record<string, unknown>) {
     const response = await this.client.get('/customers', { params });
     return response.data;
   }
 
+  async getCustomer(id: string) {
+    const response = await this.client.get(`/customers/${id}`);
+    return response.data;
+  }
+
+  async createCustomer(data: Record<string, unknown>) {
+    const response = await this.client.post('/customers', data);
+    return response.data;
+  }
+
+  async updateCustomer(id: string, data: Record<string, unknown>) {
+    const response = await this.client.patch(`/customers/${id}`, data);
+    return response.data;
+  }
+
   // Suppliers
   async getSuppliers(params?: Record<string, unknown>) {
     const response = await this.client.get('/suppliers', { params });
+    return response.data;
+  }
+
+  async getSupplier(id: string) {
+    const response = await this.client.get(`/suppliers/${id}`);
+    return response.data;
+  }
+
+  async createSupplier(data: Record<string, unknown>) {
+    const response = await this.client.post('/suppliers', data);
+    return response.data;
+  }
+
+  async updateSupplier(id: string, data: Record<string, unknown>) {
+    const response = await this.client.patch(`/suppliers/${id}`, data);
     return response.data;
   }
 

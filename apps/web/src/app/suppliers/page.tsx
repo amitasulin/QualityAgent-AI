@@ -1,7 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle, RefreshCw, Search, Star, Truck, XCircle } from 'lucide-react';
+import Link from 'next/link';
+import {
+  AlertTriangle,
+  CheckCircle,
+  ChevronLeft,
+  Plus,
+  RefreshCw,
+  Search,
+  Star,
+  Truck,
+  XCircle,
+} from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -10,19 +21,10 @@ import { Input } from '@/components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import { api } from '@/lib/api';
-
-interface Supplier {
-  id: string;
-  code: string;
-  name: string;
-  contact_person?: string | null;
-  contact_email?: string | null;
-  contact_phone?: string | null;
-  quality_rating?: string | null;
-  is_approved: boolean;
-  is_active: boolean;
-}
+import { SUPPLIER_FIELDS, SUPPLIER_INITIAL } from '@/lib/master-data-fields';
+import type { Supplier } from '@/lib/master-data';
 
 export default function SuppliersPage() {
   const [items, setItems] = useState<Supplier[]>([]);
@@ -30,6 +32,7 @@ export default function SuppliersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const fetchSuppliers = useCallback(async () => {
     try {
@@ -50,6 +53,11 @@ export default function SuppliersPage() {
     fetchSuppliers();
   }, [fetchSuppliers]);
 
+  const handleCreate = async (data: Record<string, unknown>) => {
+    await api.createSupplier(data);
+    await fetchSuppliers();
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -59,10 +67,16 @@ export default function SuppliersPage() {
           badge={<Badge variant="primary">{total} ספקים</Badge>}
           subtitle="ניהול ספקים, דירוג איכות ואישורים"
           actions={
-            <Button variant="secondary" onClick={fetchSuppliers} loading={loading}>
-              {!loading && <RefreshCw className="h-4 w-4" />}
-              רענון
-            </Button>
+            <>
+              <Button onClick={() => setShowCreateModal(true)}>
+                <Plus className="h-4 w-4" />
+                הוספת ספק
+              </Button>
+              <Button variant="secondary" onClick={fetchSuppliers} loading={loading}>
+                {!loading && <RefreshCw className="h-4 w-4" />}
+                רענון
+              </Button>
+            </>
           }
         />
 
@@ -108,7 +122,11 @@ export default function SuppliersPage() {
               <EmptyState
                 icon={Truck}
                 title="לא נמצאו ספקים"
-                description={search ? 'נסה לשנות את מונח החיפוש' : 'הספקים יופיעו כאן לאחר הגדרתם במערכת'}
+                description={
+                  search
+                    ? 'נסה לשנות את מונח החיפוש'
+                    : 'הוסף ספק ראשון כדי להתחיל לנהל דירוגי איכות ואישורים'
+                }
               />
             ) : (
               <div className="overflow-x-auto">
@@ -121,6 +139,7 @@ export default function SuppliersPage() {
                       <TableHead className="w-52">אימייל</TableHead>
                       <TableHead className="w-32">דירוג איכות</TableHead>
                       <TableHead className="w-32">אישור</TableHead>
+                      <TableHead className="w-12" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -132,22 +151,31 @@ export default function SuppliersPage() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium text-secondary-900">{s.name}</div>
+                          <Link
+                            href={`/suppliers/${s.id}`}
+                            className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
+                          >
+                            {s.name}
+                          </Link>
                           {s.contact_phone && (
                             <div className="text-xs text-secondary-400 mt-0.5" dir="ltr">
                               {s.contact_phone}
                             </div>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-secondary-600">{s.contact_person || '—'}</TableCell>
+                        <TableCell className="text-sm text-secondary-600">
+                          {s.contact_person || '—'}
+                        </TableCell>
                         <TableCell className="text-sm text-secondary-500" dir="ltr">
                           {s.contact_email || '—'}
                         </TableCell>
                         <TableCell>
-                          {s.quality_rating ? (
+                          {s.quality_rating !== null && s.quality_rating !== undefined ? (
                             <span className="inline-flex items-center gap-1.5">
                               <Star className="h-3.5 w-3.5 text-warning-500 fill-warning-500" />
-                              <Badge variant={Number(s.quality_rating) >= 4 ? 'success' : 'warning'}>
+                              <Badge
+                                variant={Number(s.quality_rating) >= 4 ? 'success' : 'warning'}
+                              >
                                 {Number(s.quality_rating).toFixed(1)}
                               </Badge>
                             </span>
@@ -166,6 +194,15 @@ export default function SuppliersPage() {
                             </span>
                           )}
                         </TableCell>
+                        <TableCell className="text-left">
+                          <Link
+                            href={`/suppliers/${s.id}`}
+                            aria-label={`פתח את ${s.name}`}
+                            className="inline-flex text-secondary-400 hover:text-primary-600"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Link>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -175,6 +212,18 @@ export default function SuppliersPage() {
           </CardBody>
         </Card>
       </div>
+
+      <CreateEntityModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="הוספת ספק חדש"
+        description="קוד ושם הם שדות חובה. דירוג איכות ואישור ניתן לעדכן בהמשך."
+        fields={SUPPLIER_FIELDS}
+        initialValues={SUPPLIER_INITIAL}
+        submitLabel="צור ספק"
+        errorFallback="יצירת הספק נכשלה"
+        onSubmit={handleCreate}
+      />
     </MainLayout>
   );
 }

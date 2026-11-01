@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Package, RefreshCw, Search } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, ChevronLeft, Package, Plus, RefreshCw, Search } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -10,19 +11,10 @@ import { Input } from '@/components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import { api } from '@/lib/api';
-
-interface Product {
-  id: string;
-  sku: string;
-  name: string;
-  description?: string | null;
-  revision: string;
-  unit?: string | null;
-  category?: string | null;
-  drawing_number?: string | null;
-  is_active: boolean;
-}
+import { PRODUCT_FIELDS, PRODUCT_INITIAL } from '@/lib/master-data-fields';
+import type { Product } from '@/lib/master-data';
 
 export default function ProductsPage() {
   const [items, setItems] = useState<Product[]>([]);
@@ -30,6 +22,7 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const fetchProducts = useCallback(async () => {
     try {
@@ -50,6 +43,11 @@ export default function ProductsPage() {
     fetchProducts();
   }, [fetchProducts]);
 
+  const handleCreate = async (data: Record<string, unknown>) => {
+    await api.createProduct(data);
+    await fetchProducts();
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -59,10 +57,16 @@ export default function ProductsPage() {
           badge={<Badge variant="primary">{total} מוצרים</Badge>}
           subtitle="קטלוג מוצרים, גרסאות ומפרטים"
           actions={
-            <Button variant="secondary" onClick={fetchProducts} loading={loading}>
-              {!loading && <RefreshCw className="h-4 w-4" />}
-              רענון
-            </Button>
+            <>
+              <Button onClick={() => setShowCreateModal(true)}>
+                <Plus className="h-4 w-4" />
+                הוספת מוצר
+              </Button>
+              <Button variant="secondary" onClick={fetchProducts} loading={loading}>
+                {!loading && <RefreshCw className="h-4 w-4" />}
+                רענון
+              </Button>
+            </>
           }
         />
 
@@ -108,7 +112,11 @@ export default function ProductsPage() {
               <EmptyState
                 icon={Package}
                 title="לא נמצאו מוצרים"
-                description={search ? 'נסה לשנות את מונח החיפוש' : 'המוצרים יופיעו כאן לאחר הגדרתם במערכת'}
+                description={
+                  search
+                    ? 'נסה לשנות את מונח החיפוש'
+                    : 'הוסף מוצר ראשון כדי להתחיל לנהל גרסאות ומפרטים'
+                }
               />
             ) : (
               <div className="overflow-x-auto">
@@ -121,23 +129,33 @@ export default function ProductsPage() {
                       <TableHead className="w-24">גרסה</TableHead>
                       <TableHead className="w-24">יחידה</TableHead>
                       <TableHead className="w-24">סטטוס</TableHead>
+                      <TableHead className="w-12" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {items.map((p) => (
                       <TableRow key={p.id}>
                         <TableCell className="whitespace-nowrap">
-                          <span className="font-mono text-sm font-semibold text-secondary-900">{p.sku}</span>
+                          <span className="font-mono text-sm font-semibold text-secondary-900">
+                            {p.sku}
+                          </span>
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium text-secondary-900">{p.name}</div>
+                          <Link
+                            href={`/products/${p.id}`}
+                            className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
+                          >
+                            {p.name}
+                          </Link>
                           {p.description && (
                             <div className="text-xs text-secondary-400 truncate max-w-md mt-0.5">
                               {p.description}
                             </div>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-secondary-600">{p.category || '—'}</TableCell>
+                        <TableCell className="text-sm text-secondary-600">
+                          {p.category || '—'}
+                        </TableCell>
                         <TableCell>
                           <Badge variant="secondary">{p.revision}</Badge>
                         </TableCell>
@@ -146,6 +164,15 @@ export default function ProductsPage() {
                           <Badge variant={p.is_active ? 'success' : 'secondary'}>
                             {p.is_active ? 'פעיל' : 'לא פעיל'}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-left">
+                          <Link
+                            href={`/products/${p.id}`}
+                            aria-label={`פתח את ${p.name}`}
+                            className="inline-flex text-secondary-400 hover:text-primary-600"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -156,6 +183,18 @@ export default function ProductsPage() {
           </CardBody>
         </Card>
       </div>
+
+      <CreateEntityModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="הוספת מוצר חדש"
+        description={'מק"ט ושם הם שדות חובה. גרסה ברירת מחדל היא 1.0.'}
+        fields={PRODUCT_FIELDS}
+        initialValues={PRODUCT_INITIAL}
+        submitLabel="צור מוצר"
+        errorFallback="יצירת המוצר נכשלה"
+        onSubmit={handleCreate}
+      />
     </MainLayout>
   );
 }

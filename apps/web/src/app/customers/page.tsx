@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Mail, RefreshCw, Search, Users } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, ChevronLeft, Mail, Plus, RefreshCw, Search, Users } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -10,18 +11,10 @@ import { Input } from '@/components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import { api } from '@/lib/api';
-
-interface Customer {
-  id: string;
-  code: string;
-  name: string;
-  contact_person?: string | null;
-  contact_email?: string | null;
-  contact_phone?: string | null;
-  quality_requirements?: string | null;
-  is_active: boolean;
-}
+import { CUSTOMER_FIELDS, CUSTOMER_INITIAL } from '@/lib/master-data-fields';
+import type { Customer } from '@/lib/master-data';
 
 export default function CustomersPage() {
   const [items, setItems] = useState<Customer[]>([]);
@@ -29,6 +22,7 @@ export default function CustomersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     try {
@@ -49,6 +43,11 @@ export default function CustomersPage() {
     fetchCustomers();
   }, [fetchCustomers]);
 
+  const handleCreate = async (data: Record<string, unknown>) => {
+    await api.createCustomer(data);
+    await fetchCustomers();
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -58,10 +57,16 @@ export default function CustomersPage() {
           badge={<Badge variant="primary">{total} לקוחות</Badge>}
           subtitle="ניהול לקוחות ודרישות איכות"
           actions={
-            <Button variant="secondary" onClick={fetchCustomers} loading={loading}>
-              {!loading && <RefreshCw className="h-4 w-4" />}
-              רענון
-            </Button>
+            <>
+              <Button onClick={() => setShowCreateModal(true)}>
+                <Plus className="h-4 w-4" />
+                הוספת לקוח
+              </Button>
+              <Button variant="secondary" onClick={fetchCustomers} loading={loading}>
+                {!loading && <RefreshCw className="h-4 w-4" />}
+                רענון
+              </Button>
+            </>
           }
         />
 
@@ -107,7 +112,11 @@ export default function CustomersPage() {
               <EmptyState
                 icon={Users}
                 title="לא נמצאו לקוחות"
-                description={search ? 'נסה לשנות את מונח החיפוש' : 'הלקוחות יופיעו כאן לאחר הגדרתם במערכת'}
+                description={
+                  search
+                    ? 'נסה לשנות את מונח החיפוש'
+                    : 'הוסף לקוח ראשון כדי להתחיל לנהל דרישות איכות'
+                }
               />
             ) : (
               <div className="overflow-x-auto">
@@ -120,6 +129,7 @@ export default function CustomersPage() {
                       <TableHead className="w-52">אימייל</TableHead>
                       <TableHead>דרישות איכות</TableHead>
                       <TableHead className="w-24">סטטוס</TableHead>
+                      <TableHead className="w-12" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -130,8 +140,17 @@ export default function CustomersPage() {
                             {c.code}
                           </span>
                         </TableCell>
-                        <TableCell className="font-medium text-secondary-900">{c.name}</TableCell>
-                        <TableCell className="text-sm text-secondary-600">{c.contact_person || '—'}</TableCell>
+                        <TableCell>
+                          <Link
+                            href={`/customers/${c.id}`}
+                            className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
+                          >
+                            {c.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-sm text-secondary-600">
+                          {c.contact_person || '—'}
+                        </TableCell>
                         <TableCell className="text-sm text-secondary-500">
                           {c.contact_email ? (
                             <span className="inline-flex items-center gap-1.5" dir="ltr">
@@ -142,13 +161,25 @@ export default function CustomersPage() {
                             '—'
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-secondary-600 max-w-xs truncate" title={c.quality_requirements || ''}>
+                        <TableCell
+                          className="text-sm text-secondary-600 max-w-xs truncate"
+                          title={c.quality_requirements || ''}
+                        >
                           {c.quality_requirements || '—'}
                         </TableCell>
                         <TableCell>
                           <Badge variant={c.is_active ? 'success' : 'secondary'}>
                             {c.is_active ? 'פעיל' : 'לא פעיל'}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-left">
+                          <Link
+                            href={`/customers/${c.id}`}
+                            aria-label={`פתח את ${c.name}`}
+                            className="inline-flex text-secondary-400 hover:text-primary-600"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -159,6 +190,18 @@ export default function CustomersPage() {
           </CardBody>
         </Card>
       </div>
+
+      <CreateEntityModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="הוספת לקוח חדש"
+        description="קוד ושם הם שדות חובה. שאר הפרטים ניתן להשלים מאוחר יותר."
+        fields={CUSTOMER_FIELDS}
+        initialValues={CUSTOMER_INITIAL}
+        submitLabel="צור לקוח"
+        errorFallback="יצירת הלקוח נכשלה"
+        onSubmit={handleCreate}
+      />
     </MainLayout>
   );
 }
