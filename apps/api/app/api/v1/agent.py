@@ -191,7 +191,15 @@ async def chat_with_agent(
     response_text = ""
     recommendations = []
 
-    if "חריגה" in message or "ncr" in message or "nonconform" in message:
+    if (
+        "חריגה" in message
+        or "חריגות" in message
+        or "אי התאמה" in message
+        or "אי-התאמה" in message
+        or "פגם" in message
+        or "ncr" in message
+        or "nonconform" in message
+    ):
         # Query recent NCRs
         ncr_result = await db.execute(
             select(Nonconformity)
@@ -208,7 +216,7 @@ async def chat_with_agent(
         else:
             response_text = "לא נמצאו חריגות במערכת."
 
-    elif "פעולה מתקנת" in message or "capa" in message:
+    elif "מתקנ" in message or "capa" in message:
         capa_result = await db.execute(
             select(CorrectiveAction)
             .where(CorrectiveAction.tenant_id == tenant.id)
