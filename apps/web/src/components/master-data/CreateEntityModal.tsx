@@ -44,7 +44,10 @@ export function CreateEntityModal({
       setValues(initialValues);
       setError(null);
     }
-  }, [isOpen, initialValues]);
+    // Reset only when the modal opens — parent re-renders (e.g. background
+    // refreshes) must not wipe what the user has already typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const handleChange = (name: string, value: FormValue) => {
     setValues((prev) => ({ ...prev, [name]: value }));
