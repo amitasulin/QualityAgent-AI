@@ -590,6 +590,7 @@ function UploadVersionModal({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="מספר גרסה *"
+            name="version"
             value={version}
             onChange={(e) => setVersion(e.target.value)}
             placeholder="1.0"
@@ -598,6 +599,7 @@ function UploadVersionModal({
           />
           <Input
             label="שם קובץ *"
+            name="file_name"
             value={fileName}
             onChange={(e) => setFileName(e.target.value)}
             placeholder="procedure-qa-001.pdf"
@@ -609,6 +611,7 @@ function UploadVersionModal({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="גודל קובץ (בתים)"
+            name="file_size"
             type="number"
             min={0}
             value={fileSize}
@@ -618,6 +621,7 @@ function UploadVersionModal({
           />
           <Select
             label="סוג קובץ"
+            name="mime_type"
             value={mimeType}
             onChange={(e) => setMimeType(e.target.value)}
             options={[
@@ -636,6 +640,7 @@ function UploadVersionModal({
 
         <Textarea
           label="תיאור השינוי"
+          name="change_summary"
           value={changeSummary}
           onChange={(e) => setChangeSummary(e.target.value)}
           rows={3}
