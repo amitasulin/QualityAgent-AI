@@ -7,6 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.sorting import apply_sorting
 from app.api.dependencies import get_current_user, get_current_tenant, require_role
 from app.models.customer import Customer
 from app.models.user import User
@@ -14,6 +15,16 @@ from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerRespons
 from app.schemas.base import PaginationParams
 
 router = APIRouter()
+
+CUSTOMER_SORT_COLUMNS = {
+    "code": Customer.code,
+    "name": Customer.name,
+    "contact_person": Customer.contact_person,
+    "contact_email": Customer.contact_email,
+    "is_active": Customer.is_active,
+    "created_at": Customer.created_at,
+    "updated_at": Customer.updated_at,
+}
 
 
 @router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
@@ -64,8 +75,14 @@ async def list_customers(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
+    query = apply_sorting(
+        query,
+        CUSTOMER_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=Customer.created_at.desc(),
+    )
     query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(Customer.created_at.desc())
 
     result = await db.execute(query)
     customers = result.scalars().all()

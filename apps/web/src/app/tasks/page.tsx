@@ -8,27 +8,40 @@ import {
   CheckCircle2,
   CheckSquare,
   ChevronLeft,
-  ChevronRight,
   Clock3,
   Filter,
   Plus,
   RefreshCw,
   Search,
   User as UserIcon,
+  XCircle,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Input';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pagination } from '@/components/ui/Pagination';
+import { ConfirmDialog } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import type { FieldDef, FormValues } from '@/components/master-data/EntityFormFields';
 import { api } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate } from '@/lib/utils';
 
 interface Task {
@@ -59,6 +72,8 @@ interface Filters {
   overdue: boolean;
   page: number;
   page_size: number;
+  sort_by: string;
+  sort_order: 'asc' | 'desc';
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -70,6 +85,8 @@ const DEFAULT_FILTERS: Filters = {
   overdue: false,
   page: 1,
   page_size: 20,
+  sort_by: 'due_date',
+  sort_order: 'asc',
 };
 
 const statusOptions = [
@@ -132,6 +149,7 @@ function DueDateCell({ task }: { task: Task }) {
 }
 
 export default function TasksPage() {
+  const { canCreateTask, canEditTask, canCompleteTask } = usePermissions();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [stats, setStats] = useState({ total: 0, todo: 0, overdue: 0, done: 0 });
@@ -150,6 +168,9 @@ export default function TasksPage() {
   const [ready, setReady] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [completingId, setCompletingId] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Task | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -182,11 +203,13 @@ export default function TasksPage() {
       const params: Record<string, unknown> = {
         page: filters.page,
         page_size: filters.page_size,
+        sort_by: filters.sort_by,
+        sort_order: filters.sort_order,
       };
       if (filters.status) params.status = filters.status;
       if (filters.priority) params.priority = filters.priority;
       if (filters.assignee_id) params.assignee_id = filters.assignee_id;
-      if (filters.search.trim()) params.search = filters.search.trim();
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
       if (filters.my_tasks) params.my_tasks = true;
       if (filters.overdue) params.overdue = true;
 
@@ -206,7 +229,7 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, debouncedSearch]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -244,8 +267,17 @@ export default function TasksPage() {
     }
   };
 
-  const handleFilterChange = (key: keyof Filters, value: string | boolean) => {
+  const handleFilterChange = (key: keyof Filters, value: string | boolean | number) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      page: 1,
+      sort_by: field,
+      sort_order: prev.sort_by === field && prev.sort_order === 'asc' ? 'desc' : 'asc',
+    }));
   };
 
   const resetFilters = () => setFilters({ ...DEFAULT_FILTERS });
@@ -264,6 +296,7 @@ export default function TasksPage() {
       payload.due_date = new Date(payload.due_date).toISOString();
     }
     await api.createTask(payload);
+    toast.success('המשימה נוצרה בהצלחה');
     await refreshAll();
   };
 
@@ -271,12 +304,28 @@ export default function TasksPage() {
     setCompletingId(task.id);
     try {
       await api.completeTask(task.id);
+      toast.success(`"${task.title}" סומנה כהושלמה`);
       await refreshAll();
     } catch (err) {
       console.error(err);
-      setError(getApiErrorMessage(err, 'סימון המשימה כהושלמה נכשל'));
+      toast.error(getApiErrorMessage(err, 'סימון המשימה כהושלמה נכשל'));
     } finally {
       setCompletingId(null);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await api.updateTask(cancelTarget.id, { status: 'cancelled' });
+      toast.success('המשימה בוטלה');
+      setCancelTarget(null);
+      await refreshAll();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'ביטול המשימה נכשל'));
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -331,10 +380,12 @@ export default function TasksPage() {
                 {!refreshing && <RefreshCw className="h-4 w-4" />}
                 רענון
               </Button>
-              <Button onClick={() => setShowCreate(true)}>
-                <Plus className="h-4 w-4" />
-                משימה חדשה
-              </Button>
+              {canCreateTask && (
+                <Button onClick={() => setShowCreate(true)}>
+                  <Plus className="h-4 w-4" />
+                  משימה חדשה
+                </Button>
+              )}
             </>
           }
         />
@@ -465,10 +516,12 @@ export default function TasksPage() {
                       איפוס סינון
                     </Button>
                   ) : (
-                    <Button onClick={() => setShowCreate(true)}>
-                      <Plus className="h-4 w-4" />
-                      משימה חדשה
-                    </Button>
+                    canCreateTask && (
+                      <Button onClick={() => setShowCreate(true)}>
+                        <Plus className="h-4 w-4" />
+                        משימה חדשה
+                      </Button>
+                    )
                   )
                 }
               />
@@ -478,12 +531,43 @@ export default function TasksPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>משימה</TableHead>
+                        <SortableTableHead
+                          field="title"
+                          activeField={filters.sort_by}
+                          direction={filters.sort_order}
+                          onSort={handleSort}
+                        >
+                          משימה
+                        </SortableTableHead>
                         <TableHead className="w-32">סוג</TableHead>
-                        <TableHead className="w-28">סטטוס</TableHead>
-                        <TableHead className="w-24">עדיפות</TableHead>
+                        <SortableTableHead
+                          field="status"
+                          activeField={filters.sort_by}
+                          direction={filters.sort_order}
+                          onSort={handleSort}
+                          className="w-28"
+                        >
+                          סטטוס
+                        </SortableTableHead>
+                        <SortableTableHead
+                          field="priority"
+                          activeField={filters.sort_by}
+                          direction={filters.sort_order}
+                          onSort={handleSort}
+                          className="w-24"
+                        >
+                          עדיפות
+                        </SortableTableHead>
                         <TableHead className="w-40">אחראי</TableHead>
-                        <TableHead className="w-36">תאריך יעד</TableHead>
+                        <SortableTableHead
+                          field="due_date"
+                          activeField={filters.sort_by}
+                          direction={filters.sort_order}
+                          onSort={handleSort}
+                          className="w-36"
+                        >
+                          תאריך יעד
+                        </SortableTableHead>
                         <TableHead className="w-32"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -521,18 +605,34 @@ export default function TasksPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
-                              {task.status !== 'done' && task.status !== 'cancelled' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleComplete(task)}
-                                  loading={completingId === task.id}
-                                  className="text-success-600 hover:bg-success-50"
-                                  title="סמן כהושלמה"
-                                >
-                                  {completingId !== task.id && <CheckCircle2 className="h-4 w-4" />}
-                                </Button>
-                              )}
+                              {task.status !== 'done' &&
+                                task.status !== 'cancelled' &&
+                                canCompleteTask(task) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleComplete(task)}
+                                    loading={completingId === task.id}
+                                    className="text-success-600 hover:bg-success-50"
+                                    title="סמן כהושלמה"
+                                  >
+                                    {completingId !== task.id && <CheckCircle2 className="h-4 w-4" />}
+                                  </Button>
+                                )}
+                              {task.status !== 'done' &&
+                                task.status !== 'cancelled' &&
+                                canEditTask(task) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setCancelTarget(task)}
+                                    className="text-secondary-400 hover:bg-danger-50 hover:text-danger-600"
+                                    title="בטל משימה"
+                                    aria-label={`בטל את ${task.title}`}
+                                  >
+                                    <XCircle className="h-4 w-4" />
+                                  </Button>
+                                )}
                               <Link href={`/tasks/${task.id}`}>
                                 <Button variant="ghost" size="sm" className="p-1.5" aria-label="פתח משימה">
                                   <ChevronLeft className="h-4 w-4" />
@@ -546,36 +646,15 @@ export default function TasksPage() {
                   </Table>
                 </div>
 
-                {pagination.total_pages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-secondary-200 bg-secondary-50/50">
-                    <p className="text-sm text-secondary-500">
-                      מציג {(pagination.page - 1) * pagination.page_size + 1}–
-                      {Math.min(pagination.page * pagination.page_size, pagination.total)} מתוך{' '}
-                      {pagination.total}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleFilterChange('page', String(pagination.page - 1))}
-                        disabled={!pagination.has_prev}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <span className="text-sm text-secondary-500 tabular-nums">
-                        {pagination.page} / {pagination.total_pages}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleFilterChange('page', String(pagination.page + 1))}
-                        disabled={!pagination.has_next}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <Pagination
+                  page={pagination.page}
+                  pageSize={pagination.page_size}
+                  total={pagination.total}
+                  totalPages={pagination.total_pages}
+                  onPageChange={(page) => handleFilterChange('page', page)}
+                  onPageSizeChange={(pageSize) => handleFilterChange('page_size', pageSize)}
+                  disabled={loading}
+                />
               </>
             )}
           </CardBody>
@@ -592,6 +671,17 @@ export default function TasksPage() {
         submitLabel="צור משימה"
         errorFallback="יצירת המשימה נכשלה"
         onSubmit={handleCreate}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(cancelTarget)}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={handleCancel}
+        loading={cancelling}
+        variant="danger"
+        title="ביטול משימה"
+        message={`לבטל את "${cancelTarget?.title ?? ''}"? המשימה תסומן כמבוטלת ותישאר בהיסטוריה.`}
+        confirmText="בטל משימה"
       />
     </MainLayout>
   );

@@ -9,10 +9,12 @@ import { DetailError, DetailSkeleton, EntityDetail, type StatDef } from '@/compo
 import { api } from '@/lib/api';
 import { PRODUCT_FIELDS } from '@/lib/master-data-fields';
 import { getApiErrorMessage, type Product } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
 
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const { canManageMasterData } = usePermissions();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,6 +79,7 @@ export default function ProductDetailPage() {
         </Badge>
       }
       stats={stats}
+      canEdit={canManageMasterData}
       extra={
         hasSpecification ? (
           <Card>

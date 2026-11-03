@@ -7,6 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.sorting import apply_sorting
 from app.api.dependencies import get_current_user, get_current_tenant, require_role
 from app.models.supplier import Supplier
 from app.models.user import User
@@ -14,6 +15,17 @@ from app.schemas.supplier import SupplierCreate, SupplierUpdate, SupplierRespons
 from app.schemas.base import PaginationParams
 
 router = APIRouter()
+
+SUPPLIER_SORT_COLUMNS = {
+    "code": Supplier.code,
+    "name": Supplier.name,
+    "contact_person": Supplier.contact_person,
+    "quality_rating": Supplier.quality_rating,
+    "is_approved": Supplier.is_approved,
+    "is_active": Supplier.is_active,
+    "created_at": Supplier.created_at,
+    "updated_at": Supplier.updated_at,
+}
 
 
 @router.post("", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
@@ -67,8 +79,14 @@ async def list_suppliers(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
+    query = apply_sorting(
+        query,
+        SUPPLIER_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=Supplier.created_at.desc(),
+    )
     query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(Supplier.created_at.desc())
 
     result = await db.execute(query)
     suppliers = result.scalars().all()

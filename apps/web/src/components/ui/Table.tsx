@@ -1,6 +1,7 @@
 'use client';
 
-import { HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes, forwardRef } from 'react';
+import { HTMLAttributes, ReactNode, TdHTMLAttributes, ThHTMLAttributes, forwardRef } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface TableProps extends HTMLAttributes<HTMLTableElement> {}
@@ -56,6 +57,45 @@ export const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLT
 );
 
 TableHead.displayName = 'TableHead';
+
+export interface SortableTableHeadProps
+  extends Omit<ThHTMLAttributes<HTMLTableCellElement>, 'onChange'> {
+  field: string;
+  activeField?: string | null;
+  direction?: 'asc' | 'desc';
+  onSort: (field: string) => void;
+  children: ReactNode;
+}
+
+export function SortableTableHead({
+  field,
+  activeField,
+  direction = 'desc',
+  onSort,
+  className,
+  children,
+  ...props
+}: SortableTableHeadProps) {
+  const active = activeField === field;
+  const Icon = active ? (direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <TableHead className={cn('p-0', className)} {...props}>
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+        className={cn(
+          'flex w-full items-center gap-1.5 px-4 py-3 text-right text-xs font-semibold transition-colors hover:text-primary-700',
+          active ? 'text-primary-700' : 'text-secondary-500'
+        )}
+      >
+        {children}
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', !active && 'opacity-40')} />
+      </button>
+    </TableHead>
+  );
+}
 
 export const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCellElement>>(
   ({ className, children, ...props }, ref) => (

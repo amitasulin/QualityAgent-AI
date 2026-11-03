@@ -2,50 +2,128 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ChevronLeft, Mail, Plus, RefreshCw, Search, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronLeft,
+  Mail,
+  Plus,
+  Power,
+  RefreshCw,
+  Search,
+  Users,
+} from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pagination } from '@/components/ui/Pagination';
+import { ConfirmDialog } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import { api } from '@/lib/api';
 import { CUSTOMER_FIELDS, CUSTOMER_INITIAL } from '@/lib/master-data-fields';
-import type { Customer } from '@/lib/master-data';
+import { getApiErrorMessage, type Customer } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
+
+interface ListQuery {
+  page: number;
+  pageSize: number;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
+const DEFAULT_QUERY: ListQuery = {
+  page: 1,
+  pageSize: 20,
+  sortBy: 'created_at',
+  sortOrder: 'desc',
+};
 
 export default function CustomersPage() {
+  const { canManageMasterData } = usePermissions();
+
   const [items, setItems] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 350);
+  const [query, setQuery] = useState<ListQuery>(DEFAULT_QUERY);
   const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<Customer | null>(null);
+  const [toggling, setToggling] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getCustomers({ page: 1, page_size: 50, search: search || undefined });
+      const data = await api.getCustomers({
+        page: query.page,
+        page_size: query.pageSize,
+        sort_by: query.sortBy,
+        sort_order: query.sortOrder,
+        search: debouncedSearch || undefined,
+      });
       setItems(data.items || []);
       setTotal(data.total || 0);
+      setTotalPages(data.total_pages || 0);
     } catch (err) {
       console.error(err);
       setError('שגיאה בטעינת הלקוחות');
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [query, debouncedSearch]);
 
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
 
+  const handleSort = (field: string) => {
+    setQuery((prev) => ({
+      ...prev,
+      page: 1,
+      sortBy: field,
+      sortOrder: prev.sortBy === field && prev.sortOrder === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
   const handleCreate = async (data: Record<string, unknown>) => {
     await api.createCustomer(data);
+    toast.success('הלקוח נוצר בהצלחה');
     await fetchCustomers();
+  };
+
+  const handleToggleActive = async () => {
+    if (!confirmTarget) return;
+    setToggling(true);
+    try {
+      const nextActive = !confirmTarget.is_active;
+      await api.updateCustomer(confirmTarget.id, { is_active: nextActive });
+      toast.success(
+        nextActive ? 'הלקוח הופעל מחדש' : 'הלקוח הושבת — לא נמחק מהמערכת'
+      );
+      setConfirmTarget(null);
+      await fetchCustomers();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'עדכון סטטוס הלקוח נכשל'));
+    } finally {
+      setToggling(false);
+    }
   };
 
   return (
@@ -58,10 +136,12 @@ export default function CustomersPage() {
           subtitle="ניהול לקוחות ודרישות איכות"
           actions={
             <>
-              <Button onClick={() => setShowCreateModal(true)}>
-                <Plus className="h-4 w-4" />
-                הוספת לקוח
-              </Button>
+              {canManageMasterData && (
+                <Button onClick={() => setShowCreateModal(true)}>
+                  <Plus className="h-4 w-4" />
+                  הוספת לקוח
+                </Button>
+              )}
               <Button variant="secondary" onClick={fetchCustomers} loading={loading}>
                 {!loading && <RefreshCw className="h-4 w-4" />}
                 רענון
@@ -77,7 +157,10 @@ export default function CustomersPage() {
               <Input
                 placeholder="חיפוש לפי קוד או שם..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setQuery((prev) => ({ ...prev, page: 1 }));
+                }}
                 className="pr-9"
               />
             </div>
@@ -117,75 +200,138 @@ export default function CustomersPage() {
                     ? 'נסה לשנות את מונח החיפוש'
                     : 'הוסף לקוח ראשון כדי להתחיל לנהל דרישות איכות'
                 }
+                action={
+                  !search && canManageMasterData ? (
+                    <Button onClick={() => setShowCreateModal(true)}>
+                      <Plus className="h-4 w-4" />
+                      הוספת לקוח
+                    </Button>
+                  ) : undefined
+                }
               />
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-24">קוד</TableHead>
-                      <TableHead>שם</TableHead>
-                      <TableHead className="w-40">איש קשר</TableHead>
-                      <TableHead className="w-52">אימייל</TableHead>
-                      <TableHead>דרישות איכות</TableHead>
-                      <TableHead className="w-24">סטטוס</TableHead>
-                      <TableHead className="w-12" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.map((c) => (
-                      <TableRow key={c.id}>
-                        <TableCell>
-                          <span className="inline-flex rounded-md bg-secondary-100 px-2 py-1 font-mono text-xs font-semibold text-secondary-700">
-                            {c.code}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            href={`/customers/${c.id}`}
-                            className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
-                          >
-                            {c.name}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="text-sm text-secondary-600">
-                          {c.contact_person || '—'}
-                        </TableCell>
-                        <TableCell className="text-sm text-secondary-500">
-                          {c.contact_email ? (
-                            <span className="inline-flex items-center gap-1.5" dir="ltr">
-                              <Mail className="h-3.5 w-3.5 text-secondary-400" />
-                              {c.contact_email}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </TableCell>
-                        <TableCell
-                          className="text-sm text-secondary-600 max-w-xs truncate"
-                          title={c.quality_requirements || ''}
+              <>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <SortableTableHead
+                          field="code"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                          className="w-28"
                         >
-                          {c.quality_requirements || '—'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={c.is_active ? 'success' : 'secondary'}>
-                            {c.is_active ? 'פעיל' : 'לא פעיל'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-left">
-                          <Link
-                            href={`/customers/${c.id}`}
-                            aria-label={`פתח את ${c.name}`}
-                            className="inline-flex text-secondary-400 hover:text-primary-600"
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </Link>
-                        </TableCell>
+                          קוד
+                        </SortableTableHead>
+                        <SortableTableHead
+                          field="name"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                        >
+                          שם
+                        </SortableTableHead>
+                        <SortableTableHead
+                          field="contact_person"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                          className="w-40"
+                        >
+                          איש קשר
+                        </SortableTableHead>
+                        <TableHead className="w-52">אימייל</TableHead>
+                        <TableHead>דרישות איכות</TableHead>
+                        <TableHead className="w-24">סטטוס</TableHead>
+                        <TableHead className="w-20" />
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((c) => (
+                        <TableRow key={c.id} className={c.is_active ? undefined : 'opacity-60'}>
+                          <TableCell>
+                            <span className="inline-flex rounded-md bg-secondary-100 px-2 py-1 font-mono text-xs font-semibold text-secondary-700">
+                              {c.code}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/customers/${c.id}`}
+                              className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
+                            >
+                              {c.name}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="text-sm text-secondary-600">
+                            {c.contact_person || '—'}
+                          </TableCell>
+                          <TableCell className="text-sm text-secondary-500">
+                            {c.contact_email ? (
+                              <span className="inline-flex items-center gap-1.5" dir="ltr">
+                                <Mail className="h-3.5 w-3.5 text-secondary-400" />
+                                {c.contact_email}
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell
+                            className="text-sm text-secondary-600 max-w-xs truncate"
+                            title={c.quality_requirements || ''}
+                          >
+                            {c.quality_requirements || '—'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={c.is_active ? 'success' : 'secondary'}>
+                              {c.is_active ? 'פעיל' : 'לא פעיל'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-1">
+                              {canManageMasterData && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setConfirmTarget(c)}
+                                  className={
+                                    c.is_active
+                                      ? 'p-1.5 text-secondary-400 hover:bg-danger-50 hover:text-danger-600'
+                                      : 'p-1.5 text-secondary-400 hover:bg-success-50 hover:text-success-600'
+                                  }
+                                  title={c.is_active ? 'השבת לקוח' : 'הפעל לקוח'}
+                                  aria-label={c.is_active ? `השבת את ${c.name}` : `הפעל את ${c.name}`}
+                                >
+                                  <Power className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Link
+                                href={`/customers/${c.id}`}
+                                aria-label={`פתח את ${c.name}`}
+                                className="inline-flex text-secondary-400 hover:text-primary-600"
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </Link>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <Pagination
+                  page={query.page}
+                  pageSize={query.pageSize}
+                  total={total}
+                  totalPages={totalPages}
+                  onPageChange={(page) => setQuery((prev) => ({ ...prev, page }))}
+                  onPageSizeChange={(pageSize) =>
+                    setQuery((prev) => ({ ...prev, page: 1, pageSize }))
+                  }
+                  disabled={loading}
+                />
+              </>
             )}
           </CardBody>
         </Card>
@@ -201,6 +347,21 @@ export default function CustomersPage() {
         submitLabel="צור לקוח"
         errorFallback="יצירת הלקוח נכשלה"
         onSubmit={handleCreate}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmTarget)}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={handleToggleActive}
+        loading={toggling}
+        variant={confirmTarget?.is_active ? 'danger' : 'primary'}
+        title={confirmTarget?.is_active ? 'השבתת לקוח' : 'הפעלת לקוח'}
+        message={
+          confirmTarget?.is_active
+            ? `להשבית את "${confirmTarget.name}"? הלקוח לא יימחק, לא יופיע כברירת מחדל בבחירה חדשה, וניתן להפעיל אותו מחדש.`
+            : `להפעיל מחדש את "${confirmTarget?.name ?? ''}"?`
+        }
+        confirmText={confirmTarget?.is_active ? 'השבת' : 'הפעל'}
       />
     </MainLayout>
   );

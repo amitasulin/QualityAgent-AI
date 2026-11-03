@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
   Pencil,
   RefreshCw,
   Save,
@@ -16,6 +15,7 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { toast } from '@/components/ui/Toast';
 import { cn, formatDateTime } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/master-data';
 import {
@@ -43,6 +43,7 @@ interface EntityDetailProps<T extends { id: string }> {
   badges?: ReactNode;
   stats?: StatDef[];
   extra?: ReactNode;
+  canEdit?: boolean;
   onSave: (data: Record<string, unknown>) => Promise<void>;
 }
 
@@ -66,6 +67,7 @@ export function EntityDetail<T extends { id: string }>({
   badges,
   stats,
   extra,
+  canEdit = true,
   onSave,
 }: EntityDetailProps<T>) {
   const record = entity as unknown as Record<string, unknown>;
@@ -76,12 +78,10 @@ export function EntityDetail<T extends { id: string }>({
   const [values, setValues] = useState<FormValues>(() => valuesFromEntity(record, fields));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const startEditing = () => {
     setValues(valuesFromEntity(record, fields));
     setError(null);
-    setSaved(false);
     setEditing(true);
   };
 
@@ -102,7 +102,7 @@ export function EntityDetail<T extends { id: string }>({
       const payload = payloadFromValues(values, fields, 'update');
       await onSave(payload);
       setEditing(false);
-      setSaved(true);
+      toast.success(`${entityName} עודכן בהצלחה`);
     } catch (err) {
       setError(getApiErrorMessage(err, 'שמירת השינויים נכשלה'));
     } finally {
@@ -153,7 +153,7 @@ export function EntityDetail<T extends { id: string }>({
                 <ArrowRight className="h-4 w-4" />
                 חזרה לרשימה
               </Link>
-              {!editing && (
+              {!editing && canEdit && (
                 <Button onClick={startEditing}>
                   <Pencil className="h-4 w-4" />
                   עריכה
@@ -162,13 +162,6 @@ export function EntityDetail<T extends { id: string }>({
             </>
           }
         />
-
-        {saved && (
-          <div className="flex items-center gap-2 rounded-lg border border-success-200 bg-success-50 px-4 py-3 text-sm text-success-700">
-            <CheckCircle2 className="h-4 w-4" />
-            השינויים נשמרו בהצלחה
-          </div>
-        )}
 
         {error && !editing && (
           <div className="flex items-center gap-2 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">

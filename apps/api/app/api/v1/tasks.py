@@ -8,6 +8,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.sorting import apply_sorting
 from app.api.dependencies import get_current_user, get_current_tenant, require_role
 from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.user import User
@@ -16,6 +17,16 @@ from app.schemas.base import PaginationParams
 from app.core.exceptions import NotFoundError, ValidationError as AppValidationError
 
 router = APIRouter()
+
+TASK_SORT_COLUMNS = {
+    "title": Task.title,
+    "status": Task.status,
+    "priority": Task.priority,
+    "due_date": Task.due_date,
+    "created_at": Task.created_at,
+    "updated_at": Task.updated_at,
+    "completed_at": Task.completed_at,
+}
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -89,8 +100,14 @@ async def list_tasks(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
+    query = apply_sorting(
+        query,
+        TASK_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=(Task.due_date.asc().nullslast(), Task.created_at.desc()),
+    )
     query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(Task.due_date.asc().nullslast(), Task.created_at.desc())
 
     result = await db.execute(query)
     tasks = result.scalars().all()

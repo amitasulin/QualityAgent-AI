@@ -8,10 +8,12 @@ import { DetailError, DetailSkeleton, EntityDetail, type StatDef } from '@/compo
 import { api } from '@/lib/api';
 import { SUPPLIER_FIELDS } from '@/lib/master-data-fields';
 import { getApiErrorMessage, type Supplier } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
 
 export default function SupplierDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const { canManageMasterData } = usePermissions();
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +93,7 @@ export default function SupplierDetailPage() {
         </>
       }
       stats={stats}
+      canEdit={canManageMasterData}
       onSave={async (data) => {
         const updated = await api.updateSupplier(supplier.id, data);
         setSupplier(updated as Supplier);

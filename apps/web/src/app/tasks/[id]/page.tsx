@@ -16,7 +16,9 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { usePermissions } from '@/lib/permissions';
 import { formatDateTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +31,8 @@ interface Task {
   priority: string;
   due_date?: string | null;
   completed_at?: string | null;
+  assignee_id?: string | null;
+  reporter_id?: string | null;
   related_entity_type?: string | null;
   related_entity_id?: string | null;
 }
@@ -78,6 +82,7 @@ function StatTile({
 
 export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
+  const { canCompleteTask } = usePermissions();
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +96,7 @@ export default function TaskDetailPage() {
     try {
       const updated = await api.completeTask(task.id);
       setTask(updated);
+      toast.success(`"${task.title}" סומנה כהושלמה`);
     } catch (err) {
       console.error(err);
       setActionError('סימון המשימה כהושלמה נכשל');
@@ -174,17 +180,19 @@ export default function TaskDetailPage() {
                         תאריך יעד: {formatDateTime(task.due_date)}
                       </p>
                     )}
-                    {task.status !== 'done' && task.status !== 'cancelled' && (
-                      <Button
-                        className="mt-4"
-                        size="sm"
-                        onClick={handleComplete}
-                        loading={completing}
-                      >
-                        {!completing && <CheckCircle2 className="h-4 w-4" />}
-                        סמן כהושלמה
-                      </Button>
-                    )}
+                    {task.status !== 'done' &&
+                      task.status !== 'cancelled' &&
+                      canCompleteTask(task) && (
+                        <Button
+                          className="mt-4"
+                          size="sm"
+                          onClick={handleComplete}
+                          loading={completing}
+                        >
+                          {!completing && <CheckCircle2 className="h-4 w-4" />}
+                          סמן כהושלמה
+                        </Button>
+                      )}
                     {actionError && (
                       <p className="mt-2 text-sm text-danger-600">{actionError}</p>
                     )}

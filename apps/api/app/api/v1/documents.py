@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.sorting import apply_sorting
 from app.api.dependencies import get_current_user, get_current_tenant, require_role
 from app.models.document import Document, DocumentVersion, DocumentStatus
 from app.models.user import User
@@ -22,6 +23,17 @@ from app.schemas.document import (
 from app.schemas.base import PaginationParams
 
 router = APIRouter()
+
+DOCUMENT_SORT_COLUMNS = {
+    "code": Document.code,
+    "title": Document.title,
+    "category": Document.category,
+    "status": Document.status,
+    "effective_from": Document.effective_from,
+    "effective_until": Document.effective_until,
+    "created_at": Document.created_at,
+    "updated_at": Document.updated_at,
+}
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -81,8 +93,14 @@ async def list_documents(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
+    query = apply_sorting(
+        query,
+        DOCUMENT_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=Document.created_at.desc(),
+    )
     query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(Document.created_at.desc())
 
     result = await db.execute(query)
     documents = result.scalars().all()

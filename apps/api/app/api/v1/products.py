@@ -7,6 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.sorting import apply_sorting
 from app.api.dependencies import get_current_user, get_current_tenant, require_role
 from app.models.product import Product
 from app.models.user import User
@@ -14,6 +15,17 @@ from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, P
 from app.schemas.base import PaginationParams
 
 router = APIRouter()
+
+PRODUCT_SORT_COLUMNS = {
+    "sku": Product.sku,
+    "name": Product.name,
+    "category": Product.category,
+    "revision": Product.revision,
+    "unit": Product.unit,
+    "is_active": Product.is_active,
+    "created_at": Product.created_at,
+    "updated_at": Product.updated_at,
+}
 
 
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
@@ -69,9 +81,15 @@ async def list_products(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
-    # Apply pagination
+    # Apply sorting and pagination
+    query = apply_sorting(
+        query,
+        PRODUCT_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=Product.created_at.desc(),
+    )
     query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(Product.created_at.desc())
 
     result = await db.execute(query)
     products = result.scalars().all()

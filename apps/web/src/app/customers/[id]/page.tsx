@@ -10,10 +10,12 @@ import { DetailError, DetailSkeleton, EntityDetail, type StatDef } from '@/compo
 import { api } from '@/lib/api';
 import { CUSTOMER_FIELDS } from '@/lib/master-data-fields';
 import { getApiErrorMessage, type Customer } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const { canManageMasterData } = usePermissions();
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,6 +76,7 @@ export default function CustomerDetailPage() {
       }
       stats={stats}
       extra={<CustomerComplaints customerId={customer.id} />}
+      canEdit={canManageMasterData}
       onSave={async (data) => {
         const updated = await api.updateCustomer(customer.id, data);
         setCustomer(updated as Customer);

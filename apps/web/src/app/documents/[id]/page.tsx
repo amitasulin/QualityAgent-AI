@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
+  Archive,
+  ArchiveRestore,
   ArrowRight,
   CalendarDays,
   CheckCircle2,
@@ -22,7 +24,7 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
@@ -36,6 +38,8 @@ import {
 } from '@/components/master-data/EntityFormFields';
 import { api } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
+import { toast } from '@/components/ui/Toast';
 import { cn, formatDate, formatDateTime } from '@/lib/utils';
 import {
   DOCUMENT_FIELDS,
@@ -106,11 +110,13 @@ function StatTile({
 
 export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
+  const { canManageDocuments } = usePermissions();
   const [document, setDocument] = useState<DocumentDetail | null>(null);
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<FormValues>({});
@@ -149,7 +155,6 @@ export default function DocumentDetailPage() {
     nextValues.tags = tagsToText(document.tags);
     setValues(nextValues);
     setFormError(null);
-    setSaved(false);
     setEditing(true);
   };
 
@@ -167,11 +172,33 @@ export default function DocumentDetailPage() {
       const updated = await api.updateDocument(params.id, payload);
       setDocument(updated);
       setEditing(false);
-      setSaved(true);
+      toast.success('השינויים נשמרו בהצלחה');
     } catch (err) {
       setFormError(getApiErrorMessage(err, 'שמירת השינויים נכשלה'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleArchiveToggle = async () => {
+    if (!document) return;
+    setArchiving(true);
+    const archivingDoc = document.status !== 'archived';
+    try {
+      const updated = await api.updateDocument(document.id, {
+        status: archivingDoc ? 'archived' : 'draft',
+      });
+      setDocument(updated);
+      setShowArchiveConfirm(false);
+      toast.success(
+        archivingDoc
+          ? 'המסמך הועבר לארכיון — ניתן לשחזר אותו בכל עת'
+          : 'המסמך שוחזר מהארכיון כטיוטה'
+      );
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'עדכון סטטוס המסמך נכשל'));
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -213,11 +240,29 @@ export default function DocumentDetailPage() {
           }
           actions={
             <>
-              <Button variant="secondary" onClick={() => setShowVersionModal(true)}>
-                <Upload className="h-4 w-4" />
-                העלאת גרסה
-              </Button>
-              {!editing && (
+              {canManageDocuments && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowArchiveConfirm(true)}
+                  className={
+                    document.status === 'archived' ? 'text-success-700' : 'text-warning-700'
+                  }
+                >
+                  {document.status === 'archived' ? (
+                    <ArchiveRestore className="h-4 w-4" />
+                  ) : (
+                    <Archive className="h-4 w-4" />
+                  )}
+                  {document.status === 'archived' ? 'שחזר מהארכיון' : 'העבר לארכיון'}
+                </Button>
+              )}
+              {canManageDocuments && (
+                <Button variant="secondary" onClick={() => setShowVersionModal(true)}>
+                  <Upload className="h-4 w-4" />
+                  העלאת גרסה
+                </Button>
+              )}
+              {!editing && canManageDocuments && (
                 <Button onClick={startEditing}>
                   <Pencil className="h-4 w-4" />
                   עריכה
@@ -226,13 +271,6 @@ export default function DocumentDetailPage() {
             </>
           }
         />
-
-        {saved && (
-          <div className="flex items-center gap-2 rounded-lg border border-success-200 bg-success-50 px-4 py-3 text-sm text-success-700">
-            <CheckCircle2 className="h-4 w-4" />
-            השינויים נשמרו בהצלחה
-          </div>
-        )}
 
         {versionSuccess && (
           <div className="flex items-center gap-2 rounded-lg border border-success-200 bg-success-50 px-4 py-3 text-sm text-success-700">
@@ -424,10 +462,12 @@ export default function DocumentDetailPage() {
                   <CardTitle>כל הגרסאות</CardTitle>
                   <Badge variant="secondary">{versions.length}</Badge>
                 </div>
-                <Button size="sm" variant="secondary" onClick={() => setShowVersionModal(true)}>
-                  <Plus className="h-4 w-4" />
-                  גרסה חדשה
-                </Button>
+                {canManageDocuments && (
+                  <Button size="sm" variant="secondary" onClick={() => setShowVersionModal(true)}>
+                    <Plus className="h-4 w-4" />
+                    גרסה חדשה
+                  </Button>
+                )}
               </CardHeader>
               <CardBody className="p-0">
                 {versions.length === 0 ? (
@@ -436,10 +476,12 @@ export default function DocumentDetailPage() {
                     title="אין גרסאות"
                     description="העלה את הגרסה הראשונה של המסמך"
                     action={
-                      <Button onClick={() => setShowVersionModal(true)}>
-                        <Upload className="h-4 w-4" />
-                        העלאת גרסה
-                      </Button>
+                      canManageDocuments ? (
+                        <Button onClick={() => setShowVersionModal(true)}>
+                          <Upload className="h-4 w-4" />
+                          העלאת גרסה
+                        </Button>
+                      ) : undefined
                     }
                   />
                 ) : (
@@ -505,8 +547,24 @@ export default function DocumentDetailPage() {
         }
         onUploaded={async (message) => {
           setVersionSuccess(message);
+          toast.success(message);
           await load();
         }}
+      />
+
+      <ConfirmDialog
+        isOpen={showArchiveConfirm}
+        onClose={() => setShowArchiveConfirm(false)}
+        onConfirm={handleArchiveToggle}
+        loading={archiving}
+        variant={document.status === 'archived' ? 'primary' : 'danger'}
+        title={document.status === 'archived' ? 'שחזור מסמך מהארכיון' : 'העברת מסמך לארכיון'}
+        message={
+          document.status === 'archived'
+            ? `לשחזר את "${document.title}" מהארכיון? המסמך יחזור לסטטוס טיוטה.`
+            : `להעביר את "${document.title}" לארכיון? המסמך יוסר מהרשימה הפעילה אך יישמר במערכת.`
+        }
+        confirmText={document.status === 'archived' ? 'שחזר' : 'העבר לארכיון'}
       />
     </MainLayout>
   );

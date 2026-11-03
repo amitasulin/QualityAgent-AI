@@ -2,50 +2,119 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ChevronLeft, Package, Plus, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, Package, Plus, Power, RefreshCw, Search } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pagination } from '@/components/ui/Pagination';
+import { ConfirmDialog } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import { api } from '@/lib/api';
 import { PRODUCT_FIELDS, PRODUCT_INITIAL } from '@/lib/master-data-fields';
-import type { Product } from '@/lib/master-data';
+import { getApiErrorMessage, type Product } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
+
+interface ListQuery {
+  page: number;
+  pageSize: number;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
+const DEFAULT_QUERY: ListQuery = {
+  page: 1,
+  pageSize: 20,
+  sortBy: 'created_at',
+  sortOrder: 'desc',
+};
 
 export default function ProductsPage() {
+  const { canManageMasterData } = usePermissions();
+
   const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 350);
+  const [query, setQuery] = useState<ListQuery>(DEFAULT_QUERY);
   const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<Product | null>(null);
+  const [toggling, setToggling] = useState(false);
 
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getProducts({ page: 1, page_size: 50, search: search || undefined });
+      const data = await api.getProducts({
+        page: query.page,
+        page_size: query.pageSize,
+        sort_by: query.sortBy,
+        sort_order: query.sortOrder,
+        search: debouncedSearch || undefined,
+      });
       setItems(data.items || []);
       setTotal(data.total || 0);
+      setTotalPages(data.total_pages || 0);
     } catch (err) {
       console.error(err);
       setError('שגיאה בטעינת המוצרים');
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [query, debouncedSearch]);
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
+  const handleSort = (field: string) => {
+    setQuery((prev) => ({
+      ...prev,
+      page: 1,
+      sortBy: field,
+      sortOrder: prev.sortBy === field && prev.sortOrder === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
   const handleCreate = async (data: Record<string, unknown>) => {
     await api.createProduct(data);
+    toast.success('המוצר נוצר בהצלחה');
     await fetchProducts();
+  };
+
+  const handleToggleActive = async () => {
+    if (!confirmTarget) return;
+    setToggling(true);
+    try {
+      const nextActive = !confirmTarget.is_active;
+      await api.updateProduct(confirmTarget.id, { is_active: nextActive });
+      toast.success(
+        nextActive ? 'המוצר הופעל מחדש' : 'המוצר הושבת — לא נמחק מהמערכת'
+      );
+      setConfirmTarget(null);
+      await fetchProducts();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'עדכון סטטוס המוצר נכשל'));
+    } finally {
+      setToggling(false);
+    }
   };
 
   return (
@@ -58,10 +127,12 @@ export default function ProductsPage() {
           subtitle="קטלוג מוצרים, גרסאות ומפרטים"
           actions={
             <>
-              <Button onClick={() => setShowCreateModal(true)}>
-                <Plus className="h-4 w-4" />
-                הוספת מוצר
-              </Button>
+              {canManageMasterData && (
+                <Button onClick={() => setShowCreateModal(true)}>
+                  <Plus className="h-4 w-4" />
+                  הוספת מוצר
+                </Button>
+              )}
               <Button variant="secondary" onClick={fetchProducts} loading={loading}>
                 {!loading && <RefreshCw className="h-4 w-4" />}
                 רענון
@@ -77,7 +148,10 @@ export default function ProductsPage() {
               <Input
                 placeholder="חיפוש לפי מק&quot;ט או שם..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setQuery((prev) => ({ ...prev, page: 1 }));
+                }}
                 className="pr-9"
               />
             </div>
@@ -117,68 +191,141 @@ export default function ProductsPage() {
                     ? 'נסה לשנות את מונח החיפוש'
                     : 'הוסף מוצר ראשון כדי להתחיל לנהל גרסאות ומפרטים'
                 }
+                action={
+                  !search && canManageMasterData ? (
+                    <Button onClick={() => setShowCreateModal(true)}>
+                      <Plus className="h-4 w-4" />
+                      הוספת מוצר
+                    </Button>
+                  ) : undefined
+                }
               />
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-32">מק&quot;ט</TableHead>
-                      <TableHead>שם</TableHead>
-                      <TableHead className="w-36">קטגוריה</TableHead>
-                      <TableHead className="w-24">גרסה</TableHead>
-                      <TableHead className="w-24">יחידה</TableHead>
-                      <TableHead className="w-24">סטטוס</TableHead>
-                      <TableHead className="w-12" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="whitespace-nowrap">
-                          <span className="font-mono text-sm font-semibold text-secondary-900">
-                            {p.sku}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            href={`/products/${p.id}`}
-                            className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
-                          >
-                            {p.name}
-                          </Link>
-                          {p.description && (
-                            <div className="text-xs text-secondary-400 truncate max-w-md mt-0.5">
-                              {p.description}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-secondary-600">
-                          {p.category || '—'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{p.revision}</Badge>
-                        </TableCell>
-                        <TableCell className="text-sm text-secondary-600">{p.unit || '—'}</TableCell>
-                        <TableCell>
-                          <Badge variant={p.is_active ? 'success' : 'secondary'}>
-                            {p.is_active ? 'פעיל' : 'לא פעיל'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-left">
-                          <Link
-                            href={`/products/${p.id}`}
-                            aria-label={`פתח את ${p.name}`}
-                            className="inline-flex text-secondary-400 hover:text-primary-600"
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </Link>
-                        </TableCell>
+              <>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <SortableTableHead
+                          field="sku"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                          className="w-32"
+                        >
+                          מק&quot;ט
+                        </SortableTableHead>
+                        <SortableTableHead
+                          field="name"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                        >
+                          שם
+                        </SortableTableHead>
+                        <SortableTableHead
+                          field="category"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                          className="w-36"
+                        >
+                          קטגוריה
+                        </SortableTableHead>
+                        <SortableTableHead
+                          field="revision"
+                          activeField={query.sortBy}
+                          direction={query.sortOrder}
+                          onSort={handleSort}
+                          className="w-24"
+                        >
+                          גרסה
+                        </SortableTableHead>
+                        <TableHead className="w-24">יחידה</TableHead>
+                        <TableHead className="w-24">סטטוס</TableHead>
+                        <TableHead className="w-20" />
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((p) => (
+                        <TableRow key={p.id} className={p.is_active ? undefined : 'opacity-60'}>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="font-mono text-sm font-semibold text-secondary-900">
+                              {p.sku}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/products/${p.id}`}
+                              className="font-medium text-secondary-900 hover:text-primary-600 hover:underline"
+                            >
+                              {p.name}
+                            </Link>
+                            {p.description && (
+                              <div className="text-xs text-secondary-400 truncate max-w-md mt-0.5">
+                                {p.description}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-secondary-600">
+                            {p.category || '—'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{p.revision}</Badge>
+                          </TableCell>
+                          <TableCell className="text-sm text-secondary-600">
+                            {p.unit || '—'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={p.is_active ? 'success' : 'secondary'}>
+                              {p.is_active ? 'פעיל' : 'לא פעיל'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-1">
+                              {canManageMasterData && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setConfirmTarget(p)}
+                                  className={
+                                    p.is_active
+                                      ? 'p-1.5 text-secondary-400 hover:bg-danger-50 hover:text-danger-600'
+                                      : 'p-1.5 text-secondary-400 hover:bg-success-50 hover:text-success-600'
+                                  }
+                                  title={p.is_active ? 'השבת מוצר' : 'הפעל מוצר'}
+                                  aria-label={p.is_active ? `השבת את ${p.name}` : `הפעל את ${p.name}`}
+                                >
+                                  <Power className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Link
+                                href={`/products/${p.id}`}
+                                aria-label={`פתח את ${p.name}`}
+                                className="inline-flex text-secondary-400 hover:text-primary-600"
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </Link>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <Pagination
+                  page={query.page}
+                  pageSize={query.pageSize}
+                  total={total}
+                  totalPages={totalPages}
+                  onPageChange={(page) => setQuery((prev) => ({ ...prev, page }))}
+                  onPageSizeChange={(pageSize) =>
+                    setQuery((prev) => ({ ...prev, page: 1, pageSize }))
+                  }
+                  disabled={loading}
+                />
+              </>
             )}
           </CardBody>
         </Card>
@@ -194,6 +341,21 @@ export default function ProductsPage() {
         submitLabel="צור מוצר"
         errorFallback="יצירת המוצר נכשלה"
         onSubmit={handleCreate}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmTarget)}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={handleToggleActive}
+        loading={toggling}
+        variant={confirmTarget?.is_active ? 'danger' : 'primary'}
+        title={confirmTarget?.is_active ? 'השבתת מוצר' : 'הפעלת מוצר'}
+        message={
+          confirmTarget?.is_active
+            ? `להשבית את "${confirmTarget.name}"? המוצר לא יימחק, וניתן להפעיל אותו מחדש בכל עת.`
+            : `להפעיל מחדש את "${confirmTarget?.name ?? ''}"?`
+        }
+        confirmText={confirmTarget?.is_active ? 'השבת' : 'הפעל'}
       />
     </MainLayout>
   );
