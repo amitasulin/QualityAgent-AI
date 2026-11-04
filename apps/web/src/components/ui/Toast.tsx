@@ -25,23 +25,44 @@ const AUTO_DISMISS_MS: Record<ToastType, number> = {
   error: 6500,
 };
 
-export const useToastStore = create<ToastState>((set) => ({
-  toasts: [],
-  add: ({ type, message, title }) => {
-    const id = Math.random().toString(36).slice(2, 10);
-    set((state) => ({ toasts: [...state.toasts, { id, type, message, title }] }));
+type ToastStore = ReturnType<typeof createToastStore>;
 
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) }));
-      }, AUTO_DISMISS_MS[type]);
-    }
+const createToastStore = () =>
+  create<ToastState>((set) => ({
+    toasts: [],
+    add: ({ type, message, title }) => {
+      const id = Math.random().toString(36).slice(2, 10);
+      set((state) => ({ toasts: [...state.toasts, { id, type, message, title }] }));
 
-    return id;
-  },
-  dismiss: (id) =>
-    set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
-}));
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => {
+          set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) }));
+        }, AUTO_DISMISS_MS[type]);
+      }
+
+      return id;
+    },
+    dismiss: (id) =>
+      set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
+  }));
+
+/**
+ * Next.js can bundle this module into more than one chunk (the app shell and a
+ * page chunk). A module-scoped store would then exist twice: pages would push
+ * toasts into one instance while <ToastViewport /> subscribes to the other, so
+ * nothing ever renders in production. Pinning the store on globalThis keeps a
+ * single instance for every chunk copy.
+ */
+const globalForToast = globalThis as unknown as {
+  __qualityagentToastStore?: ToastStore;
+};
+
+export const useToastStore: ToastStore =
+  globalForToast.__qualityagentToastStore ?? createToastStore();
+
+if (typeof window !== 'undefined') {
+  globalForToast.__qualityagentToastStore = useToastStore;
+}
 
 /**
  * Fire a toast from anywhere (event handlers, mutation callbacks, etc.).
