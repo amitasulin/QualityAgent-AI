@@ -26,8 +26,22 @@ from app.schemas.nonconformity import (
 )
 from app.schemas.base import PaginationParams
 from app.core.exceptions import NotFoundError, ValidationError as AppValidationError
+from app.core.sorting import apply_sorting
 
 router = APIRouter()
+
+SORT_COLUMNS = {
+    "number": Nonconformity.number,
+    "title": Nonconformity.title,
+    "status": Nonconformity.status,
+    "severity": Nonconformity.severity,
+    "detected_at": Nonconformity.detected_at,
+    "contained_at": Nonconformity.contained_at,
+    "closed_at": Nonconformity.closed_at,
+    "defect_code": Nonconformity.defect_code,
+    "created_at": Nonconformity.created_at,
+    "updated_at": Nonconformity.updated_at,
+}
 
 
 async def load_ncr(db: AsyncSession, ncr_id: UUID) -> Nonconformity:
@@ -181,10 +195,15 @@ async def list_ncrs(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
-    query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(desc(Nonconformity.detected_at)).options(
-        selectinload(Nonconformity.attachments)
+    query = apply_sorting(
+        query,
+        SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=desc(Nonconformity.detected_at),
     )
+    query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
+    query = query.options(selectinload(Nonconformity.attachments))
 
     result = await db.execute(query)
     ncrs = result.scalars().all()

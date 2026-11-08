@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronLeft,
-  ChevronRight,
   ClipboardCheck,
   ClipboardList,
   FlaskConical,
@@ -22,8 +21,19 @@ import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
+import { Pagination } from '@/components/ui/Pagination';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { cn, formatDate } from '@/lib/utils';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -200,15 +210,36 @@ export default function InspectionsPage() {
   });
   const [filters, setFilters] = useState({ search: '', status: '', inspection_type: '' });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [plansQuery, setPlansQuery] = useState({
+    page: 1,
+    pageSize: 20,
+    sortBy: 'code',
+    sortOrder: 'asc' as 'asc' | 'desc',
+  });
+  const [plansPagination, setPlansPagination] = useState({
+    page: 1,
+    page_size: 20,
+    total: 0,
+    total_pages: 0,
+  });
   const [showCreateInspection, setShowCreateInspection] = useState(false);
   const [showCreatePlan, setShowCreatePlan] = useState(false);
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
 
   const fetchInspections = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const params: Record<string, string | number> = { page, page_size: 20 };
-      if (filters.search) params.search = filters.search;
+      const params: Record<string, string | number> = {
+        page,
+        page_size: pageSize,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      };
+      if (debouncedSearch) params.search = debouncedSearch;
       if (filters.status) params.status = filters.status;
       if (filters.inspection_type) params.inspection_type = filters.inspection_type;
       const data = await api.getInspections(params);
@@ -227,7 +258,7 @@ export default function InspectionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, filters]);
+  }, [page, pageSize, filters.status, filters.inspection_type, debouncedSearch, sortBy, sortOrder]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -239,14 +270,26 @@ export default function InspectionsPage() {
 
   const fetchPlans = useCallback(async () => {
     try {
-      const data = await api.getInspectionPlans({ page: 1, page_size: 100 });
+      setPlansLoading(true);
+      const data = await api.getInspectionPlans({
+        page: plansQuery.page,
+        page_size: plansQuery.pageSize,
+        sort_by: plansQuery.sortBy,
+        sort_order: plansQuery.sortOrder,
+      });
       setPlans(data.items);
+      setPlansPagination({
+        page: data.page,
+        page_size: data.page_size,
+        total: data.total,
+        total_pages: data.total_pages,
+      });
     } catch (err) {
       console.error(err);
     } finally {
       setPlansLoading(false);
     }
-  }, []);
+  }, [plansQuery]);
 
   useEffect(() => {
     fetchInspections();
@@ -267,6 +310,34 @@ export default function InspectionsPage() {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const handleSort = (field: string) => {
+    setPage(1);
+    setSortBy(field);
+    setSortOrder((prev) => (sortBy === field && prev === 'asc' ? 'desc' : 'asc'));
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1);
+  };
+
+  const handlePlanSort = (field: string) => {
+    setPlansQuery((prev) => ({
+      ...prev,
+      page: 1,
+      sortBy: field,
+      sortOrder: prev.sortBy === field && prev.sortOrder === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const handlePlanPageChange = (nextPage: number) => {
+    setPlansQuery((prev) => ({ ...prev, page: nextPage }));
+  };
+
+  const handlePlanPageSizeChange = (size: number) => {
+    setPlansQuery((prev) => ({ ...prev, pageSize: size, page: 1 }));
   };
 
   const passedResults = stats ? stats.results_total - stats.results_failed : 0;
@@ -473,14 +544,24 @@ export default function InspectionsPage() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>מספר</TableHead>
-                            <TableHead>סוג</TableHead>
+                            <SortableTableHead field="number" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                              מספר
+                            </SortableTableHead>
+                            <SortableTableHead field="inspection_type" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                              סוג
+                            </SortableTableHead>
                             <TableHead>מוצר / אתר</TableHead>
-                            <TableHead className="hidden xl:table-cell">אצווה</TableHead>
+                            <SortableTableHead field="lot_number" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="hidden xl:table-cell">
+                              אצווה
+                            </SortableTableHead>
                             <TableHead>תוצאות</TableHead>
                             <TableHead>עמידה</TableHead>
-                            <TableHead>סטטוס</TableHead>
-                            <TableHead>תאריך</TableHead>
+                            <SortableTableHead field="status" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                              סטטוס
+                            </SortableTableHead>
+                            <SortableTableHead field="inspected_at" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                              תאריך
+                            </SortableTableHead>
                             <TableHead className="w-12"></TableHead>
                           </TableRow>
                         </TableHeader>
@@ -536,22 +617,15 @@ export default function InspectionsPage() {
                       </Table>
                     </div>
 
-                    {pagination.total_pages > 1 && (
-                      <div className="flex items-center justify-between px-4 py-3 border-t border-secondary-200 bg-secondary-50/50">
-                        <p className="text-sm text-secondary-500">
-                          מציג {(pagination.page - 1) * pagination.page_size + 1}–
-                          {Math.min(pagination.page * pagination.page_size, pagination.total)} מתוך {pagination.total}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setPage((p) => p - 1)} disabled={!pagination.has_prev}>
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setPage((p) => p + 1)} disabled={!pagination.has_next}>
-                            <ChevronLeft className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
+                    <Pagination
+                      page={pagination.page}
+                      pageSize={pagination.page_size}
+                      total={pagination.total}
+                      totalPages={pagination.total_pages}
+                      onPageChange={setPage}
+                      onPageSizeChange={handlePageSizeChange}
+                      disabled={loading}
+                    />
                   </>
                 )}
               </CardBody>
@@ -586,18 +660,31 @@ export default function InspectionsPage() {
                   </Button>
                 </div>
               ) : (
+                <>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>קוד</TableHead>
-                        <TableHead>שם התוכנית</TableHead>
-                        <TableHead>סוג</TableHead>
-                        <TableHead>תדירות</TableHead>
-                        <TableHead>מדגם</TableHead>
+                        <SortableTableHead field="code" activeField={plansQuery.sortBy} direction={plansQuery.sortOrder} onSort={handlePlanSort}>
+                          קוד
+                        </SortableTableHead>
+                        <SortableTableHead field="name" activeField={plansQuery.sortBy} direction={plansQuery.sortOrder} onSort={handlePlanSort}>
+                          שם התוכנית
+                        </SortableTableHead>
+                        <SortableTableHead field="inspection_type" activeField={plansQuery.sortBy} direction={plansQuery.sortOrder} onSort={handlePlanSort}>
+                          סוג
+                        </SortableTableHead>
+                        <SortableTableHead field="frequency" activeField={plansQuery.sortBy} direction={plansQuery.sortOrder} onSort={handlePlanSort}>
+                          תדירות
+                        </SortableTableHead>
+                        <SortableTableHead field="sample_size" activeField={plansQuery.sortBy} direction={plansQuery.sortOrder} onSort={handlePlanSort}>
+                          מדגם
+                        </SortableTableHead>
                         <TableHead>מאפיינים</TableHead>
                         <TableHead>בדיקות</TableHead>
-                        <TableHead>סטטוס</TableHead>
+                        <SortableTableHead field="is_active" activeField={plansQuery.sortBy} direction={plansQuery.sortOrder} onSort={handlePlanSort}>
+                          סטטוס
+                        </SortableTableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -654,6 +741,16 @@ export default function InspectionsPage() {
                     </TableBody>
                   </Table>
                 </div>
+                <Pagination
+                  page={plansPagination.page}
+                  pageSize={plansPagination.page_size}
+                  total={plansPagination.total}
+                  totalPages={plansPagination.total_pages}
+                  onPageChange={handlePlanPageChange}
+                  onPageSizeChange={handlePlanPageSizeChange}
+                  disabled={plansLoading}
+                />
+                </>
               )}
             </CardBody>
           </Card>
@@ -665,6 +762,7 @@ export default function InspectionsPage() {
         onClose={() => setShowCreateInspection(false)}
         onCreated={async () => {
           setShowCreateInspection(false);
+          toast.success('הבדיקה נוצרה בהצלחה');
           await refreshAll();
         }}
       />
@@ -673,6 +771,7 @@ export default function InspectionsPage() {
         onClose={() => setShowCreatePlan(false)}
         onCreated={async () => {
           setShowCreatePlan(false);
+          toast.success('תוכנית הבדיקה נוצרה בהצלחה');
           await refreshAll();
         }}
       />

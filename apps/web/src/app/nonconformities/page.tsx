@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronLeft,
-  ChevronRight,
   Download,
   Filter,
   Flame,
@@ -19,12 +18,25 @@ import { Card, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, SeverityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, Select } from '@/components/ui/Input';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
 import { Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pagination } from '@/components/ui/Pagination';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatRelativeTime, formatDate } from '@/lib/utils';
 
 interface NCR {
@@ -83,6 +95,7 @@ const severityOptions = [
 ];
 
 export default function NonconformitiesPage() {
+  const { canCreateNonconformity } = usePermissions();
   const [ncrs, setNcrs] = useState<NCR[]>([]);
   const [stats, setStats] = useState<NcrStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,14 +110,21 @@ export default function NonconformitiesPage() {
     page_size: 20,
   });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [sortBy, setSortBy] = useState('detected_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
 
   const fetchNcrs = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) params.append(key, String(value));
-      });
+      if (filters.status) params.append('status', filters.status);
+      if (filters.severity) params.append('severity', filters.severity);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      params.append('page', String(filters.page));
+      params.append('page_size', String(filters.page_size));
+      params.append('sort_by', sortBy);
+      params.append('sort_order', sortOrder);
       const data = await api.getNonconformities(Object.fromEntries(params));
       setNcrs(data.items);
       setPagination({
@@ -122,7 +142,15 @@ export default function NonconformitiesPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [
+    filters.status,
+    filters.severity,
+    filters.page,
+    filters.page_size,
+    debouncedSearch,
+    sortBy,
+    sortOrder,
+  ]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -157,10 +185,26 @@ export default function NonconformitiesPage() {
     setFilters((prev) => ({ ...prev, page }));
   };
 
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({ ...prev, page_size: pageSize, page: 1 }));
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => ({ ...prev, page: 1 }));
+    setSortBy(field);
+    setSortOrder((prev) => (sortBy === field && prev === 'asc' ? 'desc' : 'asc'));
+  };
+
   const handleCreateNCR = async (formData: Record<string, unknown>) => {
-    await api.createNonconformity(formData);
-    setShowCreateModal(false);
-    await refreshAll();
+    try {
+      await api.createNonconformity(formData);
+      toast.success('החריגה נוצרה בהצלחה');
+      setShowCreateModal(false);
+      await refreshAll();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'יצירת החריגה נכשלה'));
+      throw err;
+    }
   };
 
   const handleExport = () => {
@@ -203,10 +247,12 @@ export default function NonconformitiesPage() {
                 {!refreshing && <RefreshCw className="h-4 w-4" />}
                 רענון
               </Button>
-              <Button onClick={() => setShowCreateModal(true)}>
-                <Plus className="h-4 w-4" />
-                חריגה חדשה
-              </Button>
+              {canCreateNonconformity && (
+                <Button onClick={() => setShowCreateModal(true)}>
+                  <Plus className="h-4 w-4" />
+                  חריגה חדשה
+                </Button>
+              )}
             </>
           }
         />
@@ -329,12 +375,12 @@ export default function NonconformitiesPage() {
                       <Filter className="h-4 w-4" />
                       איפוס סינון
                     </Button>
-                  ) : (
+                  ) : canCreateNonconformity ? (
                     <Button onClick={() => setShowCreateModal(true)}>
                       <Plus className="h-4 w-4" />
                       חריגה חדשה
                     </Button>
-                  )
+                  ) : undefined
                 }
               />
             ) : (
@@ -343,13 +389,27 @@ export default function NonconformitiesPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-32">מספר</TableHead>
-                        <TableHead>כותרת</TableHead>
-                        <TableHead className="w-32">סטטוס</TableHead>
-                        <TableHead className="w-24">חומרה</TableHead>
-                        <TableHead className="w-28">אצווה</TableHead>
-                        <TableHead className="hidden xl:table-cell w-28">פגם</TableHead>
-                        <TableHead className="w-32">זוהה</TableHead>
+                        <SortableTableHead field="number" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          מספר
+                        </SortableTableHead>
+                        <SortableTableHead field="title" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                          כותרת
+                        </SortableTableHead>
+                        <SortableTableHead field="status" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          סטטוס
+                        </SortableTableHead>
+                        <SortableTableHead field="severity" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-24">
+                          חומרה
+                        </SortableTableHead>
+                        <SortableTableHead field="lot_number" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-28">
+                          אצווה
+                        </SortableTableHead>
+                        <SortableTableHead field="defect_code" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="hidden xl:table-cell w-28">
+                          פגם
+                        </SortableTableHead>
+                        <SortableTableHead field="detected_at" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          זוהה
+                        </SortableTableHead>
                         <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -413,32 +473,15 @@ export default function NonconformitiesPage() {
                   </Table>
                 </div>
 
-                {pagination.total_pages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-secondary-200 bg-secondary-50/50">
-                    <p className="text-sm text-secondary-500">
-                      מציג {(pagination.page - 1) * pagination.page_size + 1}–
-                      {Math.min(pagination.page * pagination.page_size, pagination.total)} מתוך {pagination.total}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.page - 1)}
-                        disabled={!pagination.has_prev}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.page + 1)}
-                        disabled={!pagination.has_next}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <Pagination
+                  page={pagination.page}
+                  pageSize={pagination.page_size}
+                  total={pagination.total}
+                  totalPages={pagination.total_pages}
+                  onPageChange={handlePageChange}
+                  onPageSizeChange={handlePageSizeChange}
+                  disabled={loading}
+                />
               </>
             )}
           </CardBody>

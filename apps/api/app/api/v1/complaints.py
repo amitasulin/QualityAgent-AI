@@ -12,6 +12,7 @@ from app.api.dependencies import get_current_user, get_current_tenant
 from app.api.v1.nonconformities import generate_ncr_number
 from app.core.database import get_db
 from app.core.exceptions import NotFoundError
+from app.core.sorting import apply_sorting
 from app.models.complaint import (
     Complaint,
     ComplaintSeverity,
@@ -31,6 +32,19 @@ from app.schemas.complaint import (
 )
 
 router = APIRouter()
+
+SORT_COLUMNS = {
+    "number": Complaint.number,
+    "title": Complaint.title,
+    "status": Complaint.status,
+    "severity": Complaint.severity,
+    "received_at": Complaint.received_at,
+    "due_date": Complaint.due_date,
+    "resolved_at": Complaint.resolved_at,
+    "satisfaction_rating": Complaint.satisfaction_rating,
+    "created_at": Complaint.created_at,
+    "updated_at": Complaint.updated_at,
+}
 
 OPEN_STATUSES = [
     ComplaintStatus.NEW,
@@ -270,9 +284,16 @@ async def list_complaints(
 
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
 
+    query = apply_sorting(
+        query,
+        SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=desc(Complaint.received_at),
+    )
+
     result = await db.execute(
-        query.order_by(desc(Complaint.received_at))
-        .offset((pagination.page - 1) * pagination.page_size)
+        query.offset((pagination.page - 1) * pagination.page_size)
         .limit(pagination.page_size)
         .options(*_load_options())
     )

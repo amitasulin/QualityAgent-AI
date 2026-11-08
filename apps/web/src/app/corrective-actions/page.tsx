@@ -6,7 +6,6 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronLeft,
-  ChevronRight,
   Clock,
   Filter,
   Plus,
@@ -20,11 +19,24 @@ import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pagination } from '@/components/ui/Pagination';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/master-data';
+import { usePermissions } from '@/lib/permissions';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -76,6 +88,7 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
 };
 
 export default function CorrectiveActionsPage() {
+  const { isManager } = usePermissions();
   const [capas, setCapas] = useState<CAPA[]>([]);
   const [stats, setStats] = useState<CapaStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,14 +103,21 @@ export default function CorrectiveActionsPage() {
     overdue: false,
   });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [sortBy, setSortBy] = useState('due_date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
 
   const fetchCapas = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) params.append(key, String(value));
-      });
+      if (filters.status) params.append('status', filters.status);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      if (filters.overdue) params.append('overdue', 'true');
+      params.append('page', String(filters.page));
+      params.append('page_size', String(filters.page_size));
+      params.append('sort_by', sortBy);
+      params.append('sort_order', sortOrder);
       const data = await api.getCorrectiveActions(Object.fromEntries(params));
       setCapas(data.items);
       setPagination({
@@ -115,7 +135,15 @@ export default function CorrectiveActionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [
+    filters.status,
+    filters.overdue,
+    filters.page,
+    filters.page_size,
+    debouncedSearch,
+    sortBy,
+    sortOrder,
+  ]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -143,9 +171,15 @@ export default function CorrectiveActionsPage() {
   };
 
   const handleCreateCAPA = async (formData: Record<string, unknown>) => {
-    await api.createCorrectiveAction(formData);
-    setShowCreateModal(false);
-    await refreshAll();
+    try {
+      await api.createCorrectiveAction(formData);
+      toast.success('הפעולה המתקנת נוצרה בהצלחה');
+      setShowCreateModal(false);
+      await refreshAll();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'יצירת הפעולה המתקנת נכשלה'));
+      throw err;
+    }
   };
 
   const handleFilterChange = (key: keyof Filters, value: string | boolean) => {
@@ -154,6 +188,16 @@ export default function CorrectiveActionsPage() {
 
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({ ...prev, page }));
+  };
+
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({ ...prev, page_size: pageSize, page: 1 }));
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => ({ ...prev, page: 1 }));
+    setSortBy(field);
+    setSortOrder((prev) => (sortBy === field && prev === 'asc' ? 'desc' : 'asc'));
   };
 
   const getDaysRemaining = (dueDate: string) => {
@@ -190,10 +234,12 @@ export default function CorrectiveActionsPage() {
                 {!refreshing && <RefreshCw className="h-4 w-4" />}
                 רענון
               </Button>
-              <Button onClick={() => setShowCreateModal(true)}>
-                <Plus className="h-4 w-4" />
-                פעולה מתקנת חדשה
-              </Button>
+              {isManager && (
+                <Button onClick={() => setShowCreateModal(true)}>
+                  <Plus className="h-4 w-4" />
+                  פעולה מתקנת חדשה
+                </Button>
+              )}
             </>
           }
         />
@@ -315,12 +361,12 @@ export default function CorrectiveActionsPage() {
                       <Filter className="h-4 w-4" />
                       איפוס סינון
                     </Button>
-                  ) : (
+                  ) : isManager ? (
                     <Button onClick={() => setShowCreateModal(true)}>
                       <Plus className="h-4 w-4" />
                       פעולה מתקנת חדשה
                     </Button>
-                  )
+                  ) : undefined
                 }
               />
             ) : (
@@ -329,12 +375,22 @@ export default function CorrectiveActionsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>כותרת</TableHead>
-                        <TableHead className="w-28">סוג</TableHead>
-                        <TableHead className="w-32">סטטוס</TableHead>
-                        <TableHead className="w-32">תאריך יעד</TableHead>
+                        <SortableTableHead field="title" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                          כותרת
+                        </SortableTableHead>
+                        <SortableTableHead field="action_type" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-28">
+                          סוג
+                        </SortableTableHead>
+                        <SortableTableHead field="status" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          סטטוס
+                        </SortableTableHead>
+                        <SortableTableHead field="due_date" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          תאריך יעד
+                        </SortableTableHead>
                         <TableHead className="w-32">נותרו</TableHead>
-                        <TableHead className="w-32">אפקטיביות</TableHead>
+                        <SortableTableHead field="effectiveness_check_date" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          אפקטיביות
+                        </SortableTableHead>
                         <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -418,32 +474,15 @@ export default function CorrectiveActionsPage() {
                   </Table>
                 </div>
 
-                {pagination.total_pages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-secondary-200 bg-secondary-50/50">
-                    <p className="text-sm text-secondary-500">
-                      מציג {(pagination.page - 1) * pagination.page_size + 1}–
-                      {Math.min(pagination.page * pagination.page_size, pagination.total)} מתוך {pagination.total}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.page - 1)}
-                        disabled={!pagination.has_prev}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.page + 1)}
-                        disabled={!pagination.has_next}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <Pagination
+                  page={pagination.page}
+                  pageSize={pagination.page_size}
+                  total={pagination.total}
+                  totalPages={pagination.total_pages}
+                  onPageChange={handlePageChange}
+                  onPageSizeChange={handlePageSizeChange}
+                  disabled={loading}
+                />
               </>
             )}
           </CardBody>

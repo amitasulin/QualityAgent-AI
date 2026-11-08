@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   ChevronLeft,
-  ChevronRight,
   Clock3,
   Download,
   Filter,
@@ -21,12 +20,24 @@ import { Card, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, SeverityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, Select } from '@/components/ui/Input';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  SortableTableHead,
+} from '@/components/ui/Table';
 import { Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pagination } from '@/components/ui/Pagination';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/master-data';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatRelativeTime, formatDate, cn } from '@/lib/utils';
 
 interface Complaint {
@@ -144,14 +155,22 @@ export default function ComplaintsPage() {
     page_size: 20,
   });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [sortBy, setSortBy] = useState('received_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
 
   const fetchComplaints = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) params.append(key, String(value));
-      });
+      if (filters.status) params.append('status', filters.status);
+      if (filters.severity) params.append('severity', filters.severity);
+      if (filters.overdue) params.append('overdue', filters.overdue);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      params.append('page', String(filters.page));
+      params.append('page_size', String(filters.page_size));
+      params.append('sort_by', sortBy);
+      params.append('sort_order', sortOrder);
       const data = await api.getComplaints(Object.fromEntries(params));
       setComplaints(data.items);
       setPagination({
@@ -169,7 +188,16 @@ export default function ComplaintsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [
+    filters.status,
+    filters.severity,
+    filters.overdue,
+    filters.page,
+    filters.page_size,
+    debouncedSearch,
+    sortBy,
+    sortOrder,
+  ]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -203,10 +231,30 @@ export default function ComplaintsPage() {
   const resetFilters = () =>
     setFilters((prev) => ({ ...prev, status: '', severity: '', overdue: '', search: '', page: 1 }));
 
+  const handlePageChange = (page: number) => {
+    setFilters((prev) => ({ ...prev, page }));
+  };
+
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({ ...prev, page_size: pageSize, page: 1 }));
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => ({ ...prev, page: 1 }));
+    setSortBy(field);
+    setSortOrder((prev) => (sortBy === field && prev === 'asc' ? 'desc' : 'asc'));
+  };
+
   const handleCreate = async (formData: Record<string, unknown>) => {
-    await api.createComplaint(formData);
-    setShowCreateModal(false);
-    await refreshAll();
+    try {
+      await api.createComplaint(formData);
+      toast.success('התלונה נוקלטה בהצלחה');
+      setShowCreateModal(false);
+      await refreshAll();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'יצירת התלונה נכשלה'));
+      throw err;
+    }
   };
 
   const handleExport = () => {
@@ -392,12 +440,24 @@ export default function ComplaintsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-28">מספר</TableHead>
-                        <TableHead>כותרת</TableHead>
-                        <TableHead className="w-28">סטטוס</TableHead>
-                        <TableHead className="w-24">חומרה</TableHead>
-                        <TableHead className="w-32">יעד SLA</TableHead>
-                        <TableHead className="hidden xl:table-cell w-28">התקבלה</TableHead>
+                        <SortableTableHead field="number" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-28">
+                          מספר
+                        </SortableTableHead>
+                        <SortableTableHead field="title" activeField={sortBy} direction={sortOrder} onSort={handleSort}>
+                          כותרת
+                        </SortableTableHead>
+                        <SortableTableHead field="status" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-28">
+                          סטטוס
+                        </SortableTableHead>
+                        <SortableTableHead field="severity" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-24">
+                          חומרה
+                        </SortableTableHead>
+                        <SortableTableHead field="due_date" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="w-32">
+                          יעד SLA
+                        </SortableTableHead>
+                        <SortableTableHead field="received_at" activeField={sortBy} direction={sortOrder} onSort={handleSort} className="hidden xl:table-cell w-28">
+                          התקבלה
+                        </SortableTableHead>
                         <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -453,32 +513,15 @@ export default function ComplaintsPage() {
                   </Table>
                 </div>
 
-                {pagination.total_pages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-secondary-200 bg-secondary-50/50">
-                    <p className="text-sm text-secondary-500">
-                      מציג {(pagination.page - 1) * pagination.page_size + 1}–
-                      {Math.min(pagination.page * pagination.page_size, pagination.total)} מתוך {pagination.total}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleFilterChange('page', String(pagination.page - 1))}
-                        disabled={!pagination.has_prev}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleFilterChange('page', String(pagination.page + 1))}
-                        disabled={!pagination.has_next}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <Pagination
+                  page={pagination.page}
+                  pageSize={pagination.page_size}
+                  total={pagination.total}
+                  totalPages={pagination.total_pages}
+                  onPageChange={handlePageChange}
+                  onPageSizeChange={handlePageSizeChange}
+                  disabled={loading}
+                />
               </>
             )}
           </CardBody>

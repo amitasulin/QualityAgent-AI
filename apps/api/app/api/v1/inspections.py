@@ -4,7 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,7 @@ from app.api.dependencies import get_current_user, get_current_tenant
 from app.api.v1.nonconformities import generate_ncr_number
 from app.core.database import get_db
 from app.core.exceptions import NotFoundError, ValidationError as AppValidationError
+from app.core.sorting import apply_sorting
 from app.models.inspection import (
     Inspection,
     InspectionPlan,
@@ -40,6 +41,31 @@ from app.schemas.inspection import (
 )
 
 router = APIRouter()
+
+PLAN_SORT_COLUMNS = {
+    "code": InspectionPlan.code,
+    "name": InspectionPlan.name,
+    "inspection_type": InspectionPlan.inspection_type,
+    "frequency": InspectionPlan.frequency,
+    "sample_size": InspectionPlan.sample_size,
+    "is_active": InspectionPlan.is_active,
+    "created_at": InspectionPlan.created_at,
+    "updated_at": InspectionPlan.updated_at,
+}
+
+INSPECTION_SORT_COLUMNS = {
+    "number": Inspection.number,
+    "inspection_type": Inspection.inspection_type,
+    "status": Inspection.status,
+    "lot_number": Inspection.lot_number,
+    "inspected_at": Inspection.inspected_at,
+    "completed_at": Inspection.completed_at,
+    "sample_size": Inspection.sample_size,
+    "passed_count": Inspection.passed_count,
+    "failed_count": Inspection.failed_count,
+    "created_at": Inspection.created_at,
+    "updated_at": Inspection.updated_at,
+}
 
 
 # ---------------------------------------------------------------- helpers
@@ -184,9 +210,15 @@ async def list_plans(
         )
 
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    query = apply_sorting(
+        query,
+        PLAN_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=asc(InspectionPlan.code),
+    )
     result = await db.execute(
-        query.order_by(InspectionPlan.code)
-        .offset((pagination.page - 1) * pagination.page_size)
+        query.offset((pagination.page - 1) * pagination.page_size)
         .limit(pagination.page_size)
         .options(selectinload(InspectionPlan.product), selectinload(InspectionPlan.site))
     )
@@ -308,9 +340,16 @@ async def list_inspections(
 
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
 
+    query = apply_sorting(
+        query,
+        INSPECTION_SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=desc(Inspection.created_at),
+    )
+
     result = await db.execute(
-        query.order_by(desc(Inspection.created_at))
-        .offset((pagination.page - 1) * pagination.page_size)
+        query.offset((pagination.page - 1) * pagination.page_size)
         .limit(pagination.page_size)
         .options(
             selectinload(Inspection.results),

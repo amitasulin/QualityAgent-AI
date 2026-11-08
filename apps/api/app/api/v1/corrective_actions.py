@@ -4,7 +4,7 @@ from uuid import UUID
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,8 +23,21 @@ from app.schemas.corrective_action import (
 )
 from app.schemas.base import PaginationParams
 from app.core.exceptions import NotFoundError, ValidationError as AppValidationError
+from app.core.sorting import apply_sorting
 
 router = APIRouter()
+
+SORT_COLUMNS = {
+    "title": CorrectiveAction.title,
+    "status": CorrectiveAction.status,
+    "action_type": CorrectiveAction.action_type,
+    "due_date": CorrectiveAction.due_date,
+    "started_at": CorrectiveAction.started_at,
+    "completed_at": CorrectiveAction.completed_at,
+    "effectiveness_check_date": CorrectiveAction.effectiveness_check_date,
+    "created_at": CorrectiveAction.created_at,
+    "updated_at": CorrectiveAction.updated_at,
+}
 
 
 @router.post("", response_model=CorrectiveActionResponse, status_code=status.HTTP_201_CREATED)
@@ -98,8 +111,14 @@ async def list_capas(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
+    query = apply_sorting(
+        query,
+        SORT_COLUMNS,
+        pagination.sort_by,
+        pagination.sort_order,
+        default_order=asc(CorrectiveAction.due_date),
+    )
     query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-    query = query.order_by(CorrectiveAction.due_date.asc())
 
     result = await db.execute(query)
     capas = result.scalars().all()
