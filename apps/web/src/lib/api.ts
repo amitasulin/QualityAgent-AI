@@ -298,6 +298,21 @@ class ApiClient {
     return response.data;
   }
 
+  async uploadNcrAttachment(id: string, file: File, description?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.client.post(`/nonconformities/${id}/attachments`, formData, {
+      params: description ? { description } : undefined,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async deleteNcrAttachment(id: string, attachmentId: string) {
+    const response = await this.client.delete(`/nonconformities/${id}/attachments/${attachmentId}`);
+    return response.data;
+  }
+
   // Corrective Actions
   async getCorrectiveActions(params?: Record<string, unknown>) {
     const response = await this.client.get('/corrective-actions', { params });
@@ -330,12 +345,33 @@ class ApiClient {
   }
 
   async completeCorrectiveAction(id: string, verificationNotes?: string) {
-    const response = await this.client.post(`/corrective-actions/${id}/complete`, { verification_notes: verificationNotes });
+    const response = await this.client.post(`/corrective-actions/${id}/complete`, null, {
+      params: verificationNotes ? { verification_notes: verificationNotes } : undefined,
+    });
     return response.data;
   }
 
-  async verifyCorrectiveAction(id: string, data: Record<string, unknown>) {
-    const response = await this.client.post(`/corrective-actions/${id}/verify`, data);
+  async verifyCorrectiveAction(
+    id: string,
+    verificationNotes: string,
+    effectivenessCheckDate?: string
+  ) {
+    const response = await this.client.post(`/corrective-actions/${id}/verify`, null, {
+      params: {
+        verification_notes: verificationNotes,
+        ...(effectivenessCheckDate
+          ? { effectiveness_check_date: effectivenessCheckDate }
+          : {}),
+      },
+    });
+    return response.data;
+  }
+
+  async createEffectivenessCheck(id: string, data: Record<string, unknown>) {
+    const response = await this.client.post(`/corrective-actions/${id}/effectiveness`, {
+      ...data,
+      capa_id: id,
+    });
     return response.data;
   }
 

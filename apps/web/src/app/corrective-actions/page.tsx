@@ -103,9 +103,22 @@ export default function CorrectiveActionsPage() {
     overdue: false,
   });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [prefillNcrId, setPrefillNcrId] = useState<string | undefined>(undefined);
   const [sortBy, setSortBy] = useState('due_date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const debouncedSearch = useDebouncedValue(filters.search, 350);
+
+  // "Create CAPA" links from an NCR detail page pass ?ncr_id=… so the new
+  // action is linked to the right nonconformity without extra clicks.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const ncrId = new URLSearchParams(window.location.search).get('ncr_id');
+    if (ncrId) {
+      setPrefillNcrId(ncrId);
+      setShowCreateModal(true);
+      window.history.replaceState({}, '', '/corrective-actions');
+    }
+  }, []);
 
   const fetchCapas = useCallback(async () => {
     try {
@@ -493,6 +506,7 @@ export default function CorrectiveActionsPage() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreateCAPA}
+        initialNcrId={prefillNcrId}
       />
     </MainLayout>
   );
@@ -502,10 +516,12 @@ function CreateCAPAModal({
   isOpen,
   onClose,
   onSubmit,
+  initialNcrId,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
+  initialNcrId?: string;
 }) {
   const [formData, setFormData] = useState({
     title: '',
@@ -520,6 +536,14 @@ function CreateCAPAModal({
 
   useEffect(() => {
     if (!isOpen) return;
+    setFormData({
+      title: '',
+      description: '',
+      action_type: 'corrective_action',
+      ncr_id: initialNcrId || '',
+      due_date: '',
+    });
+    setError(null);
     (async () => {
       try {
         const res = await api.getNonconformities({ page_size: 100 });
@@ -528,7 +552,7 @@ function CreateCAPAModal({
         console.error(err);
       }
     })();
-  }, [isOpen]);
+  }, [isOpen, initialNcrId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

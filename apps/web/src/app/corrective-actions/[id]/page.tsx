@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -10,15 +10,22 @@ import {
   CheckCircle2,
   FileText,
   Link2,
+  Pencil,
   PlayCircle,
   ShieldCheck,
   Timer,
+  XCircle,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Input, Select, Textarea } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/master-data';
+import { hasAnyRole, INSPECTOR_ROLES, usePermissions } from '@/lib/permissions';
 import { formatDate, formatDateTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +36,7 @@ interface CAPA {
   description: string;
   action_type: string;
   status: string;
+  owner_id?: string | null;
   due_date: string;
   started_at?: string | null;
   completed_at?: string | null;
@@ -45,6 +53,12 @@ const actionTypeLabels: Record<string, string> = {
   preventive_action: 'פעולה מונעת',
 };
 
+const ACTION_TYPE_OPTIONS = [
+  { value: 'correction', label: 'תיקון' },
+  { value: 'corrective_action', label: 'פעולה מתקנת' },
+  { value: 'preventive_action', label: 'פעולה מונעת' },
+];
+
 const STATUS_ACCENT: Record<string, string> = {
   draft: 'bg-secondary-300',
   assigned: 'bg-primary-500',
@@ -54,6 +68,13 @@ const STATUS_ACCENT: Record<string, string> = {
   completed: 'bg-success-500',
   rejected: 'bg-danger-500',
 };
+
+function todayISO() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
 
 function StatTile({
   label,
@@ -129,9 +150,37 @@ function daysUntil(dueDate: string) {
 
 export default function CAPADetailPage() {
   const params = useParams<{ id: string }>();
+  const { user, role, isManager } = usePermissions();
   const [capa, setCapa] = useState<CAPA | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [acting, setActing] = useState(false);
+
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [completeNotes, setCompleteNotes] = useState('');
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyForm, setVerifyForm] = useState({ verification_notes: '', effectiveness_check_date: '' });
+  const [effectivenessOpen, setEffectivenessOpen] = useState(false);
+  const [effectivenessForm, setEffectivenessForm] = useState({
+    check_date: todayISO(),
+    result: 'true',
+    evidence: '',
+    notes: '',
+  });
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    action_type: 'corrective_action',
+    due_date: '',
+    effectiveness_check_date: '',
+  });
+
+  const loadCapa = useCallback(async () => {
+    const data = await api.getCorrectiveAction(params.id);
+    setCapa(data);
+    return data as CAPA;
+  }, [params.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +200,139 @@ export default function CAPADetailPage() {
       cancelled = true;
     };
   }, [params.id]);
+
+  const canStart = Boolean(user);
+  const canComplete = hasAnyRole(role, INSPECTOR_ROLES);
+  const canVerify = isManager;
+  const canEffectiveness = hasAnyRole(role, INSPECTOR_ROLES);
+  const canEdit = Boolean(capa) && (
+    isManager ||
+    (role === 'quality_inspector' && ['draft', 'assigned'].includes(capa?.status ?? '')) ||
+    (Boolean(user) && capa?.owner_id === user?.id && ['assigned', 'in_progress'].includes(capa?.status ?? ''))
+  );
+
+  const openEdit = () => {
+    if (!capa) return;
+    setEditForm({
+      title: capa.title || '',
+      description: capa.description || '',
+      action_type: capa.action_type || 'corrective_action',
+      due_date: capa.due_date ? capa.due_date.slice(0, 10) : '',
+      effectiveness_check_date: capa.effectiveness_check_date
+        ? capa.effectiveness_check_date.slice(0, 10)
+        : '',
+    });
+    setEditOpen(true);
+  };
+
+  const handleStart = async () => {
+    if (!capa) return;
+    setActing(true);
+    try {
+      const updated = await api.startCorrectiveAction(capa.id);
+      setCapa(updated);
+      toast.success('הביצוע החל — בהצלחה');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'התחלת הביצוע נכשלה'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleComplete = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!capa) return;
+    setActing(true);
+    try {
+      const updated = await api.completeCorrectiveAction(
+        capa.id,
+        completeNotes.trim() || undefined
+      );
+      setCapa(updated);
+      setCompleteOpen(false);
+      setCompleteNotes('');
+      toast.success('הפעולה הושלמה וממתינה לאימות');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'סיום הפעולה נכשל'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleVerify = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!capa) return;
+    if (!verifyForm.verification_notes.trim()) {
+      toast.error('יש להזין הערות אימות');
+      return;
+    }
+    setActing(true);
+    try {
+      const updated = await api.verifyCorrectiveAction(
+        capa.id,
+        verifyForm.verification_notes.trim(),
+        verifyForm.effectiveness_check_date || undefined
+      );
+      setCapa(updated);
+      setVerifyOpen(false);
+      setVerifyForm({ verification_notes: '', effectiveness_check_date: '' });
+      toast.success('הפעולה אומתה ועברה לבדיקת אפקטיביות');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'אימות הפעולה נכשל'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleEffectiveness = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!capa) return;
+    setActing(true);
+    try {
+      await api.createEffectivenessCheck(capa.id, {
+        check_date: effectivenessForm.check_date,
+        result: effectivenessForm.result === 'true',
+        evidence: effectivenessForm.evidence.trim() || null,
+        notes: effectivenessForm.notes.trim() || null,
+      });
+      await loadCapa();
+      setEffectivenessOpen(false);
+      setEffectivenessForm({
+        check_date: todayISO(),
+        result: 'true',
+        evidence: '',
+        notes: '',
+      });
+      toast.success('בדיקת האפקטיביות נרשמה');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'רישום בדיקת האפקטיביות נכשל'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!capa) return;
+    setActing(true);
+    try {
+      const payload: Record<string, unknown> = {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        action_type: editForm.action_type,
+        due_date: editForm.due_date,
+        effectiveness_check_date: editForm.effectiveness_check_date || null,
+      };
+      const updated = await api.updateCorrectiveAction(capa.id, payload);
+      setCapa(updated);
+      setEditOpen(false);
+      toast.success('הפעולה המתקנת עודכנה בהצלחה');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'עדכון הפעולה המתקנת נכשל'));
+    } finally {
+      setActing(false);
+    }
+  };
 
   const accent = capa ? STATUS_ACCENT[capa.status] || 'bg-secondary-300' : 'bg-secondary-300';
   const finished = capa ? ['completed', 'rejected'].includes(capa.status) : false;
@@ -221,6 +403,54 @@ export default function CAPADetailPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2 shrink-0">
+                    {['draft', 'assigned'].includes(capa.status) && canStart && (
+                      <Button onClick={handleStart} loading={acting}>
+                        <PlayCircle className="h-4 w-4" />
+                        התחל ביצוע
+                      </Button>
+                    )}
+                    {capa.status === 'in_progress' && canComplete && (
+                      <Button onClick={() => setCompleteOpen(true)}>
+                        <CheckCircle2 className="h-4 w-4" />
+                        סיים ביצוע
+                      </Button>
+                    )}
+                    {capa.status === 'pending_review' && canVerify && (
+                      <Button
+                        onClick={() => {
+                          setVerifyForm({
+                            verification_notes: capa.verification_notes || '',
+                            effectiveness_check_date: '',
+                          });
+                          setVerifyOpen(true);
+                        }}
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        אמת פעולה
+                      </Button>
+                    )}
+                    {capa.status === 'effectiveness_check' && canEffectiveness && (
+                      <Button
+                        onClick={() => {
+                          setEffectivenessForm({
+                            check_date: todayISO(),
+                            result: 'true',
+                            evidence: '',
+                            notes: '',
+                          });
+                          setEffectivenessOpen(true);
+                        }}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        בדיקת אפקטיביות
+                      </Button>
+                    )}
+                    {canEdit && (
+                      <Button variant="secondary" onClick={openEdit}>
+                        <Pencil className="h-4 w-4" />
+                        עריכה
+                      </Button>
+                    )}
                     <Link href={`/nonconformities/${capa.ncr_id}`}>
                       <Button variant="secondary">
                         <Link2 className="h-4 w-4" />
@@ -369,6 +599,198 @@ export default function CAPADetailPage() {
           </>
         )}
       </div>
+
+      {/* Complete modal */}
+      <Modal
+        isOpen={completeOpen}
+        onClose={() => setCompleteOpen(false)}
+        title="סיום ביצוע הפעולה"
+        description="הפעולה תעבור לסטטוס ממתין לאימות."
+        size="lg"
+      >
+        <form onSubmit={handleComplete} className="space-y-4">
+          <Textarea
+            label="הערות ביצוע"
+            value={completeNotes}
+            onChange={(event) => setCompleteNotes(event.target.value)}
+            rows={4}
+            placeholder="מה בוצע בפועל, מי ביצע ומתי, ומה התוצאה?"
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setCompleteOpen(false)} disabled={acting}>
+              ביטול
+            </Button>
+            <Button type="submit" loading={acting}>
+              <CheckCircle2 className="h-4 w-4" />
+              סיים ביצוע
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Verify modal */}
+      <Modal
+        isOpen={verifyOpen}
+        onClose={() => setVerifyOpen(false)}
+        title="אימות הפעולה"
+        description="האימות מעביר את הפעולה לבדיקת אפקטיביות."
+        size="lg"
+      >
+        <form onSubmit={handleVerify} className="space-y-4">
+          <Textarea
+            label="הערות אימות *"
+            value={verifyForm.verification_notes}
+            onChange={(event) =>
+              setVerifyForm((prev) => ({ ...prev, verification_notes: event.target.value }))
+            }
+            rows={4}
+            required
+            placeholder="כיצד אומתה ביצוע הפעולה? אילו ראיות נבדקו?"
+          />
+          <Input
+            label="תאריך בדיקת אפקטיביות"
+            type="date"
+            value={verifyForm.effectiveness_check_date}
+            onChange={(event) =>
+              setVerifyForm((prev) => ({ ...prev, effectiveness_check_date: event.target.value }))
+            }
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setVerifyOpen(false)} disabled={acting}>
+              ביטול
+            </Button>
+            <Button type="submit" loading={acting}>
+              <ShieldCheck className="h-4 w-4" />
+              אמת פעולה
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Effectiveness modal */}
+      <Modal
+        isOpen={effectivenessOpen}
+        onClose={() => setEffectivenessOpen(false)}
+        title="בדיקת אפקטיביות"
+        description="פעולה אפקטיבית תסגור את ה-CAPA; פעולה לא אפקטיבית תדחה אותה לבדיקה חוזרת."
+        size="lg"
+      >
+        <form onSubmit={handleEffectiveness} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="תאריך בדיקה *"
+              type="date"
+              value={effectivenessForm.check_date}
+              onChange={(event) =>
+                setEffectivenessForm((prev) => ({ ...prev, check_date: event.target.value }))
+              }
+              required
+            />
+            <Select
+              label="תוצאה *"
+              value={effectivenessForm.result}
+              onChange={(event) =>
+                setEffectivenessForm((prev) => ({ ...prev, result: event.target.value }))
+              }
+              options={[
+                { value: 'true', label: 'אפקטיבית — הבעיה לא חזרה' },
+                { value: 'false', label: 'לא אפקטיבית — נדרשת פעולה נוספת' },
+              ]}
+            />
+          </div>
+          <Textarea
+            label="ראיות"
+            value={effectivenessForm.evidence}
+            onChange={(event) =>
+              setEffectivenessForm((prev) => ({ ...prev, evidence: event.target.value }))
+            }
+            rows={3}
+            placeholder="נתוני מעקב, בדיקות חוזרות, תצפיות בייצור…"
+          />
+          <Textarea
+            label="הערות"
+            value={effectivenessForm.notes}
+            onChange={(event) =>
+              setEffectivenessForm((prev) => ({ ...prev, notes: event.target.value }))
+            }
+            rows={2}
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setEffectivenessOpen(false)}
+              disabled={acting}
+            >
+              ביטול
+            </Button>
+            <Button type="submit" loading={acting}>
+              {effectivenessForm.result === 'true' ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
+              רשום בדיקה
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit modal */}
+      <Modal isOpen={editOpen} onClose={() => setEditOpen(false)} title="עריכת פעולה מתקנת" size="xl">
+        <form onSubmit={handleEdit} className="space-y-4">
+          <Input
+            label="כותרת *"
+            value={editForm.title}
+            onChange={(event) => setEditForm((prev) => ({ ...prev, title: event.target.value }))}
+            required
+          />
+          <Textarea
+            label="תיאור *"
+            value={editForm.description}
+            onChange={(event) =>
+              setEditForm((prev) => ({ ...prev, description: event.target.value }))
+            }
+            rows={4}
+            required
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select
+              label="סוג פעולה"
+              value={editForm.action_type}
+              onChange={(event) =>
+                setEditForm((prev) => ({ ...prev, action_type: event.target.value }))
+              }
+              options={ACTION_TYPE_OPTIONS}
+            />
+            <Input
+              label="תאריך יעד *"
+              type="date"
+              value={editForm.due_date}
+              onChange={(event) =>
+                setEditForm((prev) => ({ ...prev, due_date: event.target.value }))
+              }
+              required
+            />
+          </div>
+          <Input
+            label="תאריך בדיקת אפקטיביות"
+            type="date"
+            value={editForm.effectiveness_check_date}
+            onChange={(event) =>
+              setEditForm((prev) => ({ ...prev, effectiveness_check_date: event.target.value }))
+            }
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setEditOpen(false)} disabled={acting}>
+              ביטול
+            </Button>
+            <Button type="submit" loading={acting}>
+              שמור שינויים
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </MainLayout>
   );
 }

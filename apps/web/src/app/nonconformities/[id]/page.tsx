@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -8,21 +8,42 @@ import {
   ArrowRight,
   Barcode,
   CalendarClock,
+  CheckCircle2,
   FileText,
   Hash,
   Paperclip,
+  Pencil,
+  PlayCircle,
+  RotateCcw,
   Ruler,
+  Search,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
+  Upload,
   Wrench,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, SeverityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Input, Select, Textarea } from '@/components/ui/Input';
+import { Modal, ConfirmDialog } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/master-data';
+import { hasAnyRole, INSPECTOR_ROLES, usePermissions } from '@/lib/permissions';
 import { formatDateTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+
+interface NCRAttachment {
+  id: string;
+  file_name: string;
+  file_size?: number | null;
+  mime_type?: string | null;
+  description?: string | null;
+  created_at?: string;
+}
 
 interface NCR {
   id: string;
@@ -44,8 +65,108 @@ interface NCR {
   root_cause_analysis_method?: string | null;
   closed_at?: string | null;
   closure_notes?: string | null;
-  attachments?: Array<{ id: string; file_name: string; file_size?: number | null }>;
+  attachments?: NCRAttachment[];
 }
+
+type TransitionDef = {
+  status: string;
+  label: string;
+  hint: string;
+  icon: ComponentType<{ className?: string }>;
+  variant?: 'primary' | 'secondary' | 'danger' | 'success';
+};
+
+const NEXT_TRANSITIONS: Record<string, TransitionDef[]> = {
+  draft: [
+    { status: 'open', label: 'פתח חריגה', hint: 'העבר את החריגה לטיפול פעיל', icon: PlayCircle },
+  ],
+  open: [
+    {
+      status: 'contained',
+      label: 'בלימה',
+      hint: 'תעד פעולת בלימה מיידית',
+      icon: ShieldCheck,
+    },
+    {
+      status: 'investigating',
+      label: 'חקירת שורש',
+      hint: 'התחל ניתוח סיבת שורש',
+      icon: Search,
+    },
+  ],
+  contained: [
+    {
+      status: 'investigating',
+      label: 'חקירת שורש',
+      hint: 'המשך לניתוח סיבת השורש',
+      icon: Search,
+    },
+  ],
+  investigating: [
+    {
+      status: 'action_pending',
+      label: 'ממתין לפעולה',
+      hint: 'סיבת השורש זוהתה — נדרשת פעולה מתקנת',
+      icon: Wrench,
+    },
+  ],
+  action_pending: [
+    {
+      status: 'effectiveness_review',
+      label: 'בדיקת אפקטיביות',
+      hint: 'הפעולה בוצעה — בדוק שהיא אפקטיבית',
+      icon: CheckCircle2,
+    },
+  ],
+  effectiveness_review: [
+    {
+      status: 'closed',
+      label: 'סגור חריגה',
+      hint: 'החריגה טופלה ונסגרה',
+      icon: ShieldCheck,
+      variant: 'success',
+    },
+  ],
+  closed: [
+    {
+      status: 'reopened',
+      label: 'פתח מחדש',
+      hint: 'הבעיה חזרה או שהטיפול לא הספיק',
+      icon: RotateCcw,
+      variant: 'danger',
+    },
+  ],
+  reopened: [
+    {
+      status: 'open',
+      label: 'החזר לפתוח',
+      hint: 'המשך טיפול רגיל',
+      icon: PlayCircle,
+    },
+    {
+      status: 'investigating',
+      label: 'חקירת שורש',
+      hint: 'המשך לניתוח סיבת השורש',
+      icon: Search,
+    },
+  ],
+};
+
+const ROOT_CAUSE_METHODS = [
+  { value: '', label: 'בחר שיטה' },
+  { value: '5 Whys', label: '5 Whys' },
+  { value: 'Ishikawa (Fishbone)', label: 'אישיקאווה (עצם דג)' },
+  { value: 'Fault Tree Analysis', label: 'עץ תקלות (FTA)' },
+  { value: 'Pareto', label: 'פארטו' },
+  { value: 'Other', label: 'אחר' },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: 'critical', label: 'קריטית' },
+  { value: 'major', label: 'חמורה' },
+  { value: 'minor', label: 'קלה' },
+  { value: 'observation', label: 'הערה' },
+];
 
 const STATUS_ACCENT: Record<string, string> = {
   draft: 'bg-secondary-300',
@@ -157,11 +278,46 @@ function daysOpen(detectedAt: string, closedAt?: string | null) {
   return Math.max(0, Math.floor((end - start) / (1000 * 60 * 60 * 24)));
 }
 
+const EMPTY_TRANSITION_FORM = {
+  notes: '',
+  containment_action: '',
+  root_cause: '',
+  root_cause_analysis_method: '',
+  closure_notes: '',
+};
+
 export default function NCRDetailPage() {
   const params = useParams<{ id: string }>();
+  const { user, role, isManager } = usePermissions();
   const [ncr, setNcr] = useState<NCR | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const [transitionTarget, setTransitionTarget] = useState<TransitionDef | null>(null);
+  const [transitionForm, setTransitionForm] = useState(EMPTY_TRANSITION_FORM);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    severity: 'minor',
+    lot_number: '',
+    serial_number: '',
+    defect_code: '',
+    defect_description: '',
+    measured_value: '',
+    unit: '',
+  });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [attachmentToDelete, setAttachmentToDelete] = useState<NCRAttachment | null>(null);
+
+  const loadNcr = useCallback(async () => {
+    const data = await api.getNonconformity(params.id);
+    setNcr(data);
+    return data as NCR;
+  }, [params.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,8 +338,124 @@ export default function NCRDetailPage() {
     };
   }, [params.id]);
 
+  const canTransition = hasAnyRole(role, INSPECTOR_ROLES);
+  const canEdit = Boolean(ncr) && (isManager || ncr?.status === 'draft');
+  const canUpload = Boolean(user);
+  const canDeleteAttachment = isManager;
+
+  const openTransition = (target: TransitionDef) => {
+    setTransitionForm(EMPTY_TRANSITION_FORM);
+    setTransitionTarget(target);
+  };
+
+  const openEdit = () => {
+    if (!ncr) return;
+    setEditForm({
+      title: ncr.title || '',
+      description: ncr.description || '',
+      severity: ncr.severity || 'minor',
+      lot_number: ncr.lot_number || '',
+      serial_number: ncr.serial_number || '',
+      defect_code: ncr.defect_code || '',
+      defect_description: ncr.defect_description || '',
+      measured_value: ncr.measured_value != null ? String(ncr.measured_value) : '',
+      unit: ncr.unit || '',
+    });
+    setEditOpen(true);
+  };
+
+  const handleTransition = async () => {
+    if (!ncr || !transitionTarget) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = { status: transitionTarget.status };
+      if (transitionForm.notes.trim()) payload.notes = transitionForm.notes.trim();
+      if (transitionTarget.status === 'contained' && transitionForm.containment_action.trim()) {
+        payload.containment_action = transitionForm.containment_action.trim();
+      }
+      if (transitionTarget.status === 'investigating') {
+        if (transitionForm.root_cause.trim()) payload.root_cause = transitionForm.root_cause.trim();
+        if (transitionForm.root_cause_analysis_method) {
+          payload.root_cause_analysis_method = transitionForm.root_cause_analysis_method;
+        }
+      }
+      if (transitionTarget.status === 'closed' && transitionForm.closure_notes.trim()) {
+        payload.closure_notes = transitionForm.closure_notes.trim();
+      }
+
+      const updated = await api.transitionNonconformityStatus(ncr.id, payload);
+      setNcr(updated);
+      setTransitionTarget(null);
+      setTransitionForm(EMPTY_TRANSITION_FORM);
+      toast.success(`הסטטוס עודכן ל־${transitionTarget.label}`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'עדכון סטטוס החריגה נכשל'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!ncr) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        severity: editForm.severity,
+        lot_number: editForm.lot_number.trim() || null,
+        serial_number: editForm.serial_number.trim() || null,
+        defect_code: editForm.defect_code.trim() || null,
+        defect_description: editForm.defect_description.trim() || null,
+        measured_value: editForm.measured_value.trim() || null,
+        unit: editForm.unit.trim() || null,
+      };
+      const updated = await api.updateNonconformity(ncr.id, payload);
+      setNcr(updated);
+      setEditOpen(false);
+      toast.success('פרטי החריגה עודכנו בהצלחה');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'עדכון החריגה נכשל'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !ncr) return;
+    setUploading(true);
+    try {
+      await api.uploadNcrAttachment(ncr.id, file);
+      await loadNcr();
+      toast.success('הקובץ הועלה בהצלחה');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'העלאת הקובץ נכשלה'));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteAttachment = async () => {
+    if (!ncr || !attachmentToDelete) return;
+    setSaving(true);
+    try {
+      await api.deleteNcrAttachment(ncr.id, attachmentToDelete.id);
+      await loadNcr();
+      toast.success('הקובץ נמחק');
+      setAttachmentToDelete(null);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'מחיקת הקובץ נכשלה'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const accent = ncr ? STATUS_ACCENT[ncr.status] || 'bg-secondary-300' : 'bg-secondary-300';
   const openDays = ncr ? daysOpen(ncr.detected_at, ncr.closed_at) : 0;
+  const nextTransitions = ncr && canTransition ? NEXT_TRANSITIONS[ncr.status] || [] : [];
 
   return (
     <MainLayout>
@@ -250,10 +522,30 @@ export default function NCRDetailPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2 shrink-0">
-                    <Link href="/corrective-actions">
+                    {nextTransitions.map((transition) => {
+                      const Icon = transition.icon;
+                      return (
+                        <Button
+                          key={transition.status}
+                          variant={transition.variant || 'primary'}
+                          onClick={() => openTransition(transition)}
+                          title={transition.hint}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {transition.label}
+                        </Button>
+                      );
+                    })}
+                    {canEdit && (
+                      <Button variant="secondary" onClick={openEdit}>
+                        <Pencil className="h-4 w-4" />
+                        עריכה
+                      </Button>
+                    )}
+                    <Link href={`/corrective-actions?ncr_id=${ncr.id}`}>
                       <Button variant="secondary">
                         <Wrench className="h-4 w-4" />
-                        פעולות מתקנות
+                        {isManager ? 'צור CAPA' : 'פעולות מתקנות'}
                       </Button>
                     </Link>
                   </div>
@@ -351,19 +643,53 @@ export default function NCRDetailPage() {
                     <Paperclip className="h-5 w-5 text-secondary-500" />
                     <CardTitle>קבצים מצורפים</CardTitle>
                     <Badge variant="secondary">{ncr.attachments?.length ?? 0}</Badge>
+                    {canUpload && (
+                      <div className="mr-auto">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          className="hidden"
+                          onChange={handleUpload}
+                          disabled={uploading}
+                        />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={uploading}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Upload className="h-4 w-4" />
+                          העלה קובץ
+                        </Button>
+                      </div>
+                    )}
                   </CardHeader>
                   <CardBody className={ncr.attachments?.length ? 'pt-2' : undefined}>
                     {ncr.attachments && ncr.attachments.length > 0 ? (
                       <ul className="divide-y divide-secondary-100">
                         {ncr.attachments.map((a) => (
                           <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
-                            <span className="inline-flex items-center gap-2 text-sm text-secondary-900">
-                              <Paperclip className="h-4 w-4 text-secondary-400" />
-                              {a.file_name}
+                            <span className="inline-flex items-center gap-2 text-sm text-secondary-900 min-w-0">
+                              <Paperclip className="h-4 w-4 text-secondary-400 shrink-0" />
+                              <span className="truncate" title={a.file_name}>{a.file_name}</span>
                             </span>
-                            <Badge variant="secondary">
-                              {a.file_size ? `${Math.round(a.file_size / 1024)} KB` : '—'}
-                            </Badge>
+                            <span className="flex items-center gap-2 shrink-0">
+                              <Badge variant="secondary">
+                                {a.file_size ? `${Math.round(a.file_size / 1024)} KB` : '—'}
+                              </Badge>
+                              {canDeleteAttachment && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`מחק ${a.file_name}`}
+                                  title="מחק קובץ"
+                                  onClick={() => setAttachmentToDelete(a)}
+                                  className="text-danger-500 hover:text-danger-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -405,6 +731,204 @@ export default function NCRDetailPage() {
           </>
         )}
       </div>
+
+      {/* Status transition modal */}
+      <Modal
+        isOpen={Boolean(transitionTarget)}
+        onClose={() => setTransitionTarget(null)}
+        title={transitionTarget ? `${transitionTarget.label} — ${ncr?.number ?? ''}` : ''}
+        description={transitionTarget?.hint}
+        size="lg"
+      >
+        {transitionTarget && (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleTransition();
+            }}
+            className="space-y-4"
+          >
+            {transitionTarget.status === 'contained' && (
+              <Textarea
+                label="פעולת בלימה"
+                value={transitionForm.containment_action}
+                onChange={(event) =>
+                  setTransitionForm((prev) => ({ ...prev, containment_action: event.target.value }))
+                }
+                rows={3}
+                placeholder="מה נעשה כדי לעצור את התפשטות הבעיה? (הפרדה, החזרה, חסימת אצווה…)"
+              />
+            )}
+
+            {transitionTarget.status === 'investigating' && (
+              <>
+                <Textarea
+                  label="סיבת שורש"
+                  value={transitionForm.root_cause}
+                  onChange={(event) =>
+                    setTransitionForm((prev) => ({ ...prev, root_cause: event.target.value }))
+                  }
+                  rows={3}
+                  placeholder="מהי הסיבה הבסיסית לחריגה?"
+                />
+                <Select
+                  label="שיטת ניתוח"
+                  value={transitionForm.root_cause_analysis_method}
+                  onChange={(event) =>
+                    setTransitionForm((prev) => ({
+                      ...prev,
+                      root_cause_analysis_method: event.target.value,
+                    }))
+                  }
+                  options={ROOT_CAUSE_METHODS}
+                />
+              </>
+            )}
+
+            {transitionTarget.status === 'closed' && (
+              <Textarea
+                label="הערות סגירה"
+                value={transitionForm.closure_notes}
+                onChange={(event) =>
+                  setTransitionForm((prev) => ({ ...prev, closure_notes: event.target.value }))
+                }
+                rows={3}
+                placeholder="סיכום הטיפול, ראיות לסגירה ובדיקת אפקטיביות"
+              />
+            )}
+
+            <Textarea
+              label="הערות נוספות"
+              value={transitionForm.notes}
+              onChange={(event) =>
+                setTransitionForm((prev) => ({ ...prev, notes: event.target.value }))
+              }
+              rows={2}
+              placeholder="אופציונלי — יירשם כהערת מעבר"
+            />
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setTransitionTarget(null)}
+                disabled={saving}
+              >
+                ביטול
+              </Button>
+              <Button
+                type="submit"
+                loading={saving}
+                variant={transitionTarget.variant || 'primary'}
+              >
+                {transitionTarget.label}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Edit modal */}
+      <Modal
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        title={`עריכת חריגה ${ncr?.number ?? ''}`}
+        size="xl"
+      >
+        <form onSubmit={handleEdit} className="space-y-4">
+          <Input
+            label="כותרת *"
+            value={editForm.title}
+            onChange={(event) => setEditForm((prev) => ({ ...prev, title: event.target.value }))}
+            required
+          />
+          <Textarea
+            label="תיאור *"
+            value={editForm.description}
+            onChange={(event) =>
+              setEditForm((prev) => ({ ...prev, description: event.target.value }))
+            }
+            rows={4}
+            required
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select
+              label="חומרה"
+              value={editForm.severity}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, severity: event.target.value }))}
+              options={SEVERITY_OPTIONS}
+            />
+            <Input
+              label="אצווה"
+              value={editForm.lot_number}
+              onChange={(event) =>
+                setEditForm((prev) => ({ ...prev, lot_number: event.target.value }))
+              }
+            />
+            <Input
+              label="מספר סידורי"
+              value={editForm.serial_number}
+              onChange={(event) =>
+                setEditForm((prev) => ({ ...prev, serial_number: event.target.value }))
+              }
+            />
+            <Input
+              label="קוד פגם"
+              value={editForm.defect_code}
+              onChange={(event) =>
+                setEditForm((prev) => ({ ...prev, defect_code: event.target.value }))
+              }
+            />
+          </div>
+
+          <Textarea
+            label="תיאור פגם"
+            value={editForm.defect_description}
+            onChange={(event) =>
+              setEditForm((prev) => ({ ...prev, defect_description: event.target.value }))
+            }
+            rows={2}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="ערך מדוד"
+              type="number"
+              step="any"
+              value={editForm.measured_value}
+              onChange={(event) =>
+                setEditForm((prev) => ({ ...prev, measured_value: event.target.value }))
+              }
+            />
+            <Input
+              label="יחידת מידה"
+              value={editForm.unit}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, unit: event.target.value }))}
+              placeholder="מ״מ, ק״ג, °C…"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setEditOpen(false)} disabled={saving}>
+              ביטול
+            </Button>
+            <Button type="submit" loading={saving}>
+              שמור שינויים
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(attachmentToDelete)}
+        onClose={() => setAttachmentToDelete(null)}
+        onConfirm={handleDeleteAttachment}
+        title="מחיקת קובץ מצורף"
+        message={`למחוק את "${attachmentToDelete?.file_name ?? ''}"? הפעולה אינה ניתנת לשחזור.`}
+        confirmText="מחק"
+        loading={saving}
+      />
     </MainLayout>
   );
 }

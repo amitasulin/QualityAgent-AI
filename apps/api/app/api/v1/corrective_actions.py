@@ -341,7 +341,7 @@ async def create_effectiveness_check(
         raise AppValidationError("CAPA must be in effectiveness check status")
 
     check = EffectivenessCheck(
-        **check_data.model_dump(),
+        **check_data.model_dump(exclude={"capa_id"}),
         tenant_id=tenant.id,
         capa_id=capa_id,
         checked_by_id=current_user.id,
