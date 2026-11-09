@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Activity,
@@ -16,12 +16,14 @@ import {
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
-import { Badge, StatusBadge, SeverityBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge, SeverityBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { toast } from '@/components/ui/Toast';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/master-data';
 import { formatRelativeTime, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -30,7 +32,7 @@ interface DashboardMetrics {
   open_capas: number;
   inspection_pass_rate: number;
   overdue_tasks: number;
-  ncr_trend: Array<{ month: string; count: number }>;
+  ncr_trend: Array<{ month: string; year?: number; count: number }>;
   ai_insight: string;
   recent_ncrs: Array<{
     id: string;
@@ -52,6 +54,19 @@ interface DashboardMetrics {
     title: string;
     due_date: string;
     days_remaining: number;
+    kind?: 'capa' | 'task';
+  }>;
+  new_ncrs_30d: number;
+  closed_ncrs_30d: number;
+  overdue_capas: number;
+  open_tasks: number;
+  my_open_tasks: number;
+  my_tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    priority: string;
+    due_date?: string | null;
   }>;
 }
 
@@ -66,26 +81,46 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [months, setMonths] = useState(6);
+  const [runningAgent, setRunningAgent] = useState(false);
+  const hasLoadedRef = useRef(false);
 
-  const fetchMetrics = async (isRefresh = false) => {
-    try {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-      const data = await api.getDashboardMetrics();
-      setMetrics(data);
-      setError(null);
-    } catch (err) {
-      setError('שגיאה בטעינת נתוני הדשבורד');
-      console.error(err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const fetchMetrics = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh || hasLoadedRef.current) setRefreshing(true);
+        else setLoading(true);
+        const data = await api.getDashboardMetrics({ months });
+        setMetrics(data);
+        setError(null);
+      } catch (err) {
+        setError('שגיאה בטעינת נתוני הדשבורד');
+        console.error(err);
+      } finally {
+        hasLoadedRef.current = true;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [months]
+  );
 
   useEffect(() => {
     fetchMetrics();
-  }, []);
+  }, [fetchMetrics]);
+
+  const runAgent = async () => {
+    setRunningAgent(true);
+    try {
+      await api.triggerAgentRun('manual');
+      toast.success('הסוכן הופעל — ההמלצות יתעדכנו בקרוב');
+      await fetchMetrics(true);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'הפעלת הסוכן נכשלה'));
+    } finally {
+      setRunningAgent(false);
+    }
+  };
 
   const trend = metrics?.ncr_trend ?? [];
   const maxCount = Math.max(1, ...trend.map((t) => t.count));
@@ -173,7 +208,7 @@ export default function DashboardPage() {
             <KpiCard
               label="אי התאמות פתוחות"
               value={metrics?.open_ncrs ?? 0}
-              hint="לחץ לצפייה בכל החריגות"
+              hint={`${metrics?.new_ncrs_30d ?? 0} נפתחו ב-30 יום · ${metrics?.closed_ncrs_30d ?? 0} נסגרו`}
               icon={AlertTriangle}
               tone="danger"
               className="h-full transition-shadow group-hover:shadow-md"
@@ -183,7 +218,11 @@ export default function DashboardPage() {
             <KpiCard
               label="פעולות מתקנות פתוחות"
               value={metrics?.open_capas ?? 0}
-              hint="מעקב אחר CAPA עד לסגירה"
+              hint={
+                (metrics?.overdue_capas ?? 0) > 0
+                  ? `${metrics?.overdue_capas} באיחור · דורש טיפול`
+                  : 'אין פעולות באיחור'
+              }
               icon={CheckSquare}
               tone="warning"
               className="h-full transition-shadow group-hover:shadow-md"
@@ -206,8 +245,8 @@ export default function DashboardPage() {
               value={metrics?.overdue_tasks ?? 0}
               hint={
                 (metrics?.overdue_tasks ?? 0) > 0
-                  ? 'דורש טיפול מיידי'
-                  : 'אין משימות באיחור — כל הכבוד'
+                  ? `מתוך ${metrics?.open_tasks ?? 0} משימות פתוחות`
+                  : `אין איחורים · ${metrics?.open_tasks ?? 0} משימות פתוחות`
               }
               icon={Clock}
               tone="secondary"
@@ -221,11 +260,32 @@ export default function DashboardPage() {
           <div className="lg:col-span-2 space-y-6">
             {/* Trend chart */}
             <Card>
-              <CardHeader className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+              <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <Activity className="h-5 w-5 text-primary-600" />
                   <CardTitle>מגמת אי התאמות</CardTitle>
-                  <Badge variant="secondary">6 חודשים</Badge>
+                  <div
+                    className="flex items-center rounded-lg border border-secondary-200 bg-secondary-50 p-0.5"
+                    role="group"
+                    aria-label="טווח זמן למגמה"
+                  >
+                    {[6, 12].map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setMonths(value)}
+                        aria-pressed={months === value}
+                        className={cn(
+                          'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                          months === value
+                            ? 'bg-white text-secondary-900 shadow-sm'
+                            : 'text-secondary-500 hover:text-secondary-700'
+                        )}
+                      >
+                        {value} חודשים
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="text-left">
                   <p className="text-xs text-secondary-400">סה״כ בתקופה</p>
@@ -247,15 +307,21 @@ export default function DashboardPage() {
                         <div key={i} className="border-t border-dashed border-secondary-100" />
                       ))}
                     </div>
-                    <div className="relative flex items-end justify-between gap-2 sm:gap-4 h-64 pb-7">
+                    <div
+                      className={cn(
+                        'relative flex items-end justify-between h-64 pb-7',
+                        trend.length > 8 ? 'gap-1' : 'gap-2 sm:gap-4'
+                      )}
+                    >
                       {trend.map((item, index) => {
                         const height = Math.max(6, (item.count / maxCount) * 190);
                         const isLast = index === trend.length - 1;
+                        const showLabel = trend.length <= 6 || index % 2 === 0 || isLast;
                         return (
                           <div
-                            key={`${item.month}-${index}`}
+                            key={`${item.year ?? ''}-${item.month}-${index}`}
                             className="flex-1 flex flex-col items-center justify-end min-w-0 h-full group"
-                            title={`${item.month}: ${item.count} חריגות`}
+                            title={`${item.month} ${item.year ?? ''}: ${item.count} חריגות`}
                           >
                             <span className="text-xs font-semibold text-secondary-500 tabular-nums mb-1.5">
                               {item.count}
@@ -269,13 +335,24 @@ export default function DashboardPage() {
                               )}
                               style={{ height: `${height}px` }}
                             />
-                            <span className="absolute bottom-0 text-xs text-secondary-500">
-                              {item.month}
+                            <span
+                              className={cn(
+                                'absolute bottom-0 text-secondary-500 whitespace-nowrap',
+                                trend.length > 8 ? 'text-[10px]' : 'text-xs'
+                              )}
+                            >
+                              {showLabel ? item.month : '\u00A0'}
                             </span>
                           </div>
                         );
                       })}
                     </div>
+                    {trend.length > 0 && (
+                      <p className="mt-1 text-center text-xs text-secondary-400">
+                        {trend[0].month} {trend[0].year ?? ''} – {trend[trend.length - 1].month}{' '}
+                        {trend[trend.length - 1].year ?? ''}
+                      </p>
+                    )}
                   </div>
                 )}
               </CardBody>
@@ -311,6 +388,70 @@ export default function DashboardPage() {
 
           {/* Side column */}
           <div className="space-y-6">
+            {/* My tasks */}
+            <Card className="overflow-hidden">
+              <CardHeader className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="h-5 w-5 text-primary-600" />
+                  <CardTitle>המשימות שלי</CardTitle>
+                  {(metrics?.my_open_tasks ?? 0) > 0 && (
+                    <Badge variant="primary">{metrics?.my_open_tasks}</Badge>
+                  )}
+                </div>
+                <Link href="/tasks?my_tasks=true">
+                  <Button variant="ghost" size="sm">
+                    הצג הכל
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardBody className="p-0">
+                {metrics?.my_tasks?.length ? (
+                  <div className="divide-y divide-secondary-100">
+                    {metrics.my_tasks.map((task) => {
+                      const isOverdue = task.due_date
+                        ? new Date(task.due_date) < new Date()
+                        : false;
+                      return (
+                        <Link
+                          key={task.id}
+                          href={`/tasks/${task.id}`}
+                          className="flex items-start gap-3 px-5 py-3.5 hover:bg-secondary-50/70 transition-colors"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-secondary-900 truncate">
+                              {task.title}
+                            </p>
+                            <p
+                              className={cn(
+                                'text-xs mt-1',
+                                isOverdue ? 'text-danger-600 font-medium' : 'text-secondary-400'
+                              )}
+                            >
+                              {task.due_date
+                                ? `יעד: ${formatDate(task.due_date)}`
+                                : 'ללא מועד יעד'}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <StatusBadge status={task.status} type="task" />
+                            <PriorityBadge priority={task.priority} />
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    icon={CheckSquare}
+                    title="אין משימות פתוחות"
+                    description="אין משימות המיועדות לך כרגע"
+                    className="py-8"
+                  />
+                )}
+              </CardBody>
+            </Card>
+
             {/* Recent NCRs */}
             <Card className="overflow-hidden">
               <CardHeader className="flex items-center justify-between gap-3">
@@ -370,9 +511,15 @@ export default function DashboardPage() {
                   <Brain className="h-5 w-5 text-primary-600" />
                   <CardTitle>המלצות סוכן AI</CardTitle>
                 </div>
-                {!!metrics?.recent_recommendations?.length && (
-                  <Badge variant="warning">{metrics.recent_recommendations.length} ממתינות</Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {!!metrics?.recent_recommendations?.length && (
+                    <Badge variant="warning">{metrics.recent_recommendations.length} ממתינות</Badge>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={runAgent} loading={runningAgent}>
+                    {!runningAgent && <RefreshCw className="h-3.5 w-3.5" />}
+                    הרצת סוכן
+                  </Button>
+                </div>
               </CardHeader>
               <CardBody className="p-0">
                 {metrics?.recent_recommendations?.length ? (
@@ -405,10 +552,7 @@ export default function DashboardPage() {
                     description="הסוכן לא זיהה המלצות חדשות"
                     className="py-8"
                     action={
-                      <Button
-                        size="sm"
-                        onClick={() => api.triggerAgentRun('manual')}
-                      >
+                      <Button size="sm" onClick={runAgent} loading={runningAgent}>
                         הפעל בדיקה יזומה
                       </Button>
                     }
@@ -427,15 +571,29 @@ export default function DashboardPage() {
                 {metrics?.upcoming_due_dates?.length ? (
                   <div className="divide-y divide-secondary-100">
                     {metrics.upcoming_due_dates.slice(0, 5).map((item) => (
-                      <div
-                        key={item.id}
+                      <Link
+                        key={`${item.kind ?? 'capa'}-${item.id}`}
+                        href={
+                          item.kind === 'task'
+                            ? `/tasks/${item.id}`
+                            : `/corrective-actions/${item.id}`
+                        }
                         className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-secondary-50/70 transition-colors"
                       >
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-secondary-900 truncate">
-                            {item.title}
-                          </p>
-                          <p className="text-xs text-secondary-400 mt-0.5">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={item.kind === 'task' ? 'primary' : 'warning'}
+                              size="sm"
+                              className="shrink-0"
+                            >
+                              {item.kind === 'task' ? 'משימה' : 'CAPA'}
+                            </Badge>
+                            <p className="text-sm font-medium text-secondary-900 truncate">
+                              {item.title}
+                            </p>
+                          </div>
+                          <p className="text-xs text-secondary-400 mt-1">
                             {formatDate(item.due_date)}
                           </p>
                         </div>
@@ -449,6 +607,7 @@ export default function DashboardPage() {
                                   ? 'warning'
                                   : 'primary'
                           }
+                          className="shrink-0"
                         >
                           {item.days_remaining < 0
                             ? `${Math.abs(item.days_remaining)} ימי איחור`
@@ -456,14 +615,14 @@ export default function DashboardPage() {
                               ? 'היום'
                               : `${item.days_remaining} ימים`}
                         </Badge>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 ) : (
                   <EmptyState
                     icon={CheckSquare}
                     title="אין מועדי יעד קרובים"
-                    description="אין פעולות מתקנות עם מועדי יעד פתוחים"
+                    description="אין פעולות מתקנות או משימות עם מועדי יעד פתוחים"
                     className="py-8"
                   />
                 )}

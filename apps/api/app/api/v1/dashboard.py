@@ -22,11 +22,16 @@ router = APIRouter()
 
 @router.get("/metrics", response_model=DashboardMetricsResponse)
 async def get_dashboard_metrics(
+    months: int = Query(6, ge=3, le=12, description="Number of months in the NCR trend"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     tenant=Depends(get_current_tenant),
 ):
     """Get dashboard metrics for current tenant"""
+    now = datetime.now(timezone.utc)
+    today = date.today()
+    thirty_days_ago = now - timedelta(days=30)
+
     # Open NCRs
     open_ncrs_result = await db.execute(
         select(func.count(Nonconformity.id)).where(
@@ -45,11 +50,51 @@ async def get_dashboard_metrics(
     )
     open_capas = open_capas_result.scalar() or 0
 
+    # Overdue CAPAs (open actions whose due date has passed)
+    overdue_capas = await db.scalar(
+        select(func.count(CorrectiveAction.id)).where(
+            CorrectiveAction.tenant_id == tenant.id,
+            CorrectiveAction.due_date < today,
+            CorrectiveAction.status.not_in([CAPAStatus.COMPLETED, CAPAStatus.REJECTED]),
+        )
+    ) or 0
+
+    # NCRs opened / closed in the last 30 days
+    new_ncrs_30d = await db.scalar(
+        select(func.count(Nonconformity.id)).where(
+            Nonconformity.tenant_id == tenant.id,
+            Nonconformity.detected_at >= thirty_days_ago,
+        )
+    ) or 0
+    closed_ncrs_30d = await db.scalar(
+        select(func.count(Nonconformity.id)).where(
+            Nonconformity.tenant_id == tenant.id,
+            Nonconformity.closed_at.isnot(None),
+            Nonconformity.closed_at >= thirty_days_ago,
+        )
+    ) or 0
+
+    # Open tasks, including a personal slice for the current user
+    open_task_statuses = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW]
+    open_tasks = await db.scalar(
+        select(func.count(Task.id)).where(
+            Task.tenant_id == tenant.id,
+            Task.status.in_(open_task_statuses),
+        )
+    ) or 0
+    my_open_tasks = await db.scalar(
+        select(func.count(Task.id)).where(
+            Task.tenant_id == tenant.id,
+            Task.assignee_id == current_user.id,
+            Task.status.in_(open_task_statuses),
+        )
+    ) or 0
+
     # Overdue tasks
     overdue_tasks_result = await db.execute(
         select(func.count(Task.id)).where(
             Task.tenant_id == tenant.id,
-            Task.due_date < datetime.now(timezone.utc),
+            Task.due_date < now,
             Task.status.not_in([TaskStatus.DONE, TaskStatus.CANCELLED]),
         )
     )
@@ -73,8 +118,20 @@ async def get_dashboard_metrics(
         round((results_total - results_failed) / results_total * 100, 1) if results_total else 0.0
     )
 
-    # NCR Trend (last 6 months)
-    six_months_ago = datetime.now(timezone.utc) - timedelta(days=180)
+    # NCR Trend (last N months, including the current one)
+    months_hebrew = ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ", "יול", "אוג", "ספט", "אוק", "נוב", "דצמ"]
+    month_keys: list[tuple[int, int]] = []
+    cursor_year, cursor_month = now.year, now.month
+    for _ in range(months):
+        month_keys.append((cursor_year, cursor_month))
+        cursor_month -= 1
+        if cursor_month == 0:
+            cursor_month = 12
+            cursor_year -= 1
+    month_keys.reverse()
+
+    start_year, start_month = month_keys[0]
+    trend_start = datetime(start_year, start_month, 1, tzinfo=timezone.utc)
     trend_result = await db.execute(
         select(
             func.date_trunc('month', Nonconformity.detected_at).label('month'),
@@ -82,25 +139,33 @@ async def get_dashboard_metrics(
         )
         .where(
             Nonconformity.tenant_id == tenant.id,
-            Nonconformity.detected_at >= six_months_ago,
+            Nonconformity.detected_at >= trend_start,
         )
         .group_by('month')
         .order_by('month')
     )
     trend_rows = trend_result.all()
-
-    # Ensure we have 6 months (fill missing with 0)
-    months_hebrew = ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ", "יול", "אוג", "ספט", "אוק", "נוב", "דצמ"]
-    trend_counts = {row.month.month: row.count for row in trend_rows}
-    current_month = datetime.now(timezone.utc).month
-    trend_data = []
-    for i in range(5, -1, -1):
-        month_number = ((current_month - i - 1) % 12) + 1
-        month_name = months_hebrew[month_number - 1]
-        trend_data.append({"month": month_name, "count": trend_counts.get(month_number, 0)})
+    trend_counts = {(row.month.year, row.month.month): row.count for row in trend_rows}
+    trend_data = [
+        {
+            "month": months_hebrew[month_number - 1],
+            "year": year,
+            "count": trend_counts.get((year, month_number), 0),
+        }
+        for year, month_number in month_keys
+    ]
 
     # AI Insight (generate based on data)
-    ai_insight = generate_ai_insight(open_ncrs, open_capas, overdue_tasks, recent_ncrs_count=open_ncrs)
+    ai_insight = generate_ai_insight(
+        open_ncrs,
+        open_capas,
+        overdue_tasks,
+        recent_ncrs_count=new_ncrs_30d,
+        new_ncrs_30d=new_ncrs_30d,
+        closed_ncrs_30d=closed_ncrs_30d,
+        overdue_capas=overdue_capas,
+        my_open_tasks=my_open_tasks,
+    )
 
     # Recent NCRs
     recent_ncrs_result = await db.execute(
@@ -144,28 +209,79 @@ async def get_dashboard_metrics(
         for r in recent_recs
     ]
 
-    # Upcoming due dates
-    upcoming_due_result = await db.execute(
+    # My open tasks (personal work queue)
+    my_tasks_result = await db.execute(
+        select(Task)
+        .where(
+            Task.tenant_id == tenant.id,
+            Task.assignee_id == current_user.id,
+            Task.status.in_(open_task_statuses),
+        )
+        .order_by(Task.due_date.asc().nullslast())
+        .limit(5)
+    )
+    my_tasks = my_tasks_result.scalars().all()
+    my_tasks_data = [
+        {
+            "id": str(t.id),
+            "title": t.title,
+            "status": t.status.value,
+            "priority": t.priority.value,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
+        }
+        for t in my_tasks
+    ]
+
+    # Upcoming and overdue due dates, combining CAPAs and tasks
+    upcoming_limit = today + timedelta(days=14)
+    capa_due_result = await db.execute(
         select(CorrectiveAction)
         .where(
             CorrectiveAction.tenant_id == tenant.id,
-            CorrectiveAction.due_date >= date.today(),
-            CorrectiveAction.due_date <= date.today() + timedelta(days=14),
+            CorrectiveAction.due_date <= upcoming_limit,
             CorrectiveAction.status.not_in([CAPAStatus.COMPLETED, CAPAStatus.REJECTED]),
         )
         .order_by(CorrectiveAction.due_date.asc())
-        .limit(5)
+        .limit(8)
     )
-    upcoming_due = upcoming_due_result.scalars().all()
-    upcoming_due_data = [
-        {
-            "id": str(c.id),
-            "title": c.title,
-            "due_date": c.due_date.isoformat(),
-            "days_remaining": (c.due_date - date.today()).days,
-        }
-        for c in upcoming_due
-    ]
+    task_due_result = await db.execute(
+        select(Task)
+        .where(
+            Task.tenant_id == tenant.id,
+            Task.due_date.isnot(None),
+            Task.due_date <= datetime.combine(upcoming_limit, datetime.max.time(), tzinfo=timezone.utc),
+            Task.status.not_in([TaskStatus.DONE, TaskStatus.CANCELLED]),
+        )
+        .order_by(Task.due_date.asc())
+        .limit(8)
+    )
+
+    combined_due: list[dict] = []
+    for c in capa_due_result.scalars().all():
+        combined_due.append(
+            {
+                "id": str(c.id),
+                "kind": "capa",
+                "title": c.title,
+                "due_date": c.due_date.isoformat(),
+                "days_remaining": (c.due_date - today).days,
+            }
+        )
+    for t in task_due_result.scalars().all():
+        due = t.due_date.date() if t.due_date else None
+        if due is None:
+            continue
+        combined_due.append(
+            {
+                "id": str(t.id),
+                "kind": "task",
+                "title": t.title,
+                "due_date": due.isoformat(),
+                "days_remaining": (due - today).days,
+            }
+        )
+    combined_due.sort(key=lambda item: item["due_date"])
+    upcoming_due_data = combined_due[:6]
 
     return DashboardMetricsResponse(
         open_ncrs=open_ncrs,
@@ -177,10 +293,25 @@ async def get_dashboard_metrics(
         recent_ncrs=recent_ncrs_data,
         recent_recommendations=recent_recs_data,
         upcoming_due_dates=upcoming_due_data,
+        new_ncrs_30d=new_ncrs_30d,
+        closed_ncrs_30d=closed_ncrs_30d,
+        overdue_capas=overdue_capas,
+        open_tasks=open_tasks,
+        my_open_tasks=my_open_tasks,
+        my_tasks=my_tasks_data,
     )
 
 
-def generate_ai_insight(open_ncrs: int, open_capas: int, overdue_tasks: int, recent_ncrs_count: int) -> str:
+def generate_ai_insight(
+    open_ncrs: int,
+    open_capas: int,
+    overdue_tasks: int,
+    recent_ncrs_count: int,
+    new_ncrs_30d: int = 0,
+    closed_ncrs_30d: int = 0,
+    overdue_capas: int = 0,
+    my_open_tasks: int = 0,
+) -> str:
     """Generate AI insight based on current metrics"""
     insights = []
 
@@ -190,12 +321,23 @@ def generate_ai_insight(open_ncrs: int, open_capas: int, overdue_tasks: int, rec
     if open_capas > 5:
         insights.append(f"{open_capas} פעולות מתקנות פתוחות - בדוק התקדמות ואפקטיביות.")
 
+    if overdue_capas > 0:
+        insights.append(f"{overdue_capas} פעולות מתקנות באיחור - יש לעדכן מועדי יעד או לסגור אותן.")
+
     if overdue_tasks > 0:
         insights.append(f"{overdue_tasks} משימות באיחור - נדרשת התערבות ניהולית.")
+
+    if new_ncrs_30d > closed_ncrs_30d:
+        insights.append(
+            f"ב-30 הימים האחרונים נפתחו {new_ncrs_30d} חריגות ונסגרו {closed_ncrs_30d} - קצב הפתיחה גבוה מקצב הסגירה."
+        )
 
     # Check for repeated defects (would need more complex query in production)
     if recent_ncrs_count >= 3:
         insights.append("זוהו מספר חריגות בימים האחרונים - הסוכן בודק תבניות חוזרות.")
+
+    if my_open_tasks > 0:
+        insights.append(f"מוקצות לך {my_open_tasks} משימות פתוחות.")
 
     if not insights:
         insights.append("מדדי האיכות בטווח התקין. המשך מעקב שוטף.")

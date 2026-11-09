@@ -125,8 +125,8 @@ class ApiClient {
   }
 
   // Dashboard
-  async getDashboardMetrics() {
-    const response = await this.client.get('/dashboard/metrics');
+  async getDashboardMetrics(params?: Record<string, unknown>) {
+    const response = await this.client.get('/dashboard/metrics', { params });
     return response.data;
   }
 
