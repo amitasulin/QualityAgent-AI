@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import Cookies from 'js-cookie';
 
 interface User {
   id: string;
@@ -34,7 +35,20 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (user, accessToken, refreshToken) =>
         set({ user, accessToken, refreshToken, isAuthenticated: true, isLoading: false }),
       setUser: (user) => set({ user }),
-      logout: () => set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false }),
+      logout: () => {
+        // Cookies are what the middleware and API actually trust; clearing only
+        // the client store left the session alive and kept users on the app.
+        Cookies.remove('access_token');
+        Cookies.remove('refresh_token');
+        Cookies.remove('user');
+        set({
+          user: null,
+          accessToken: null,
+          refreshToken: null,
+          isAuthenticated: false,
+          isLoading: false,
+        });
+      },
       setLoading: (isLoading) => set({ isLoading }),
     }),
     {

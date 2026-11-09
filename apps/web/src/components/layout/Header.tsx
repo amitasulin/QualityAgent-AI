@@ -2,6 +2,7 @@
 
 import { useState, Fragment } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Menu, Bell, User, LogOut, Settings, ChevronDown, Moon, Sun } from 'lucide-react';
 import { useUIStore, useAuthStore, useNotificationStore } from '@/lib/store';
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { formatRelativeTime } from '@/lib/utils';
 
 export function Header() {
+  const router = useRouter();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
   const { notifications, removeNotification } = useNotificationStore();
@@ -16,6 +18,13 @@ export function Header() {
   const [showNotifications, setShowNotifications] = useState(false);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const handleLogout = () => {
+    logout();
+    setShowUserMenu(false);
+    router.replace('/login');
+    router.refresh();
+  };
 
   return (
     <header className={cn('fixed top-0 left-0 right-0 z-30 h-16 bg-white/90 backdrop-blur border-b border-secondary-200 shadow-sm transition-all duration-300', sidebarOpen ? 'lg:mr-64' : 'lg:mr-0')}>
@@ -139,7 +148,7 @@ export function Header() {
                     פרופיל
                   </Link>
                   <button
-                    onClick={logout}
+                    onClick={handleLogout}
                     className="flex items-center gap-2 w-full px-4 py-2 text-danger-600 hover:bg-danger-50"
                   >
                     <LogOut className="h-4 w-4" />
