@@ -32,88 +32,105 @@ async def get_dashboard_metrics(
     today = date.today()
     thirty_days_ago = now - timedelta(days=30)
 
-    # Open NCRs
-    open_ncrs_result = await db.execute(
-        select(func.count(Nonconformity.id)).where(
-            Nonconformity.tenant_id == tenant.id,
-            Nonconformity.status.in_([NCRStatus.OPEN, NCRStatus.CONTAINED, NCRStatus.INVESTIGATING, NCRStatus.ACTION_PENDING, NCRStatus.EFFECTIVENESS_REVIEW]),
-        )
-    )
-    open_ncrs = open_ncrs_result.scalar() or 0
-
-    # Open CAPAs
-    open_capas_result = await db.execute(
-        select(func.count(CorrectiveAction.id)).where(
-            CorrectiveAction.tenant_id == tenant.id,
-            CorrectiveAction.status.in_([CAPAStatus.DRAFT, CAPAStatus.ASSIGNED, CAPAStatus.IN_PROGRESS, CAPAStatus.PENDING_REVIEW, CAPAStatus.EFFECTIVENESS_CHECK]),
-        )
-    )
-    open_capas = open_capas_result.scalar() or 0
-
-    # Overdue CAPAs (open actions whose due date has passed)
-    overdue_capas = await db.scalar(
-        select(func.count(CorrectiveAction.id)).where(
-            CorrectiveAction.tenant_id == tenant.id,
-            CorrectiveAction.due_date < today,
-            CorrectiveAction.status.not_in([CAPAStatus.COMPLETED, CAPAStatus.REJECTED]),
-        )
-    ) or 0
-
-    # NCRs opened / closed in the last 30 days
-    new_ncrs_30d = await db.scalar(
-        select(func.count(Nonconformity.id)).where(
-            Nonconformity.tenant_id == tenant.id,
-            Nonconformity.detected_at >= thirty_days_ago,
-        )
-    ) or 0
-    closed_ncrs_30d = await db.scalar(
-        select(func.count(Nonconformity.id)).where(
-            Nonconformity.tenant_id == tenant.id,
-            Nonconformity.closed_at.isnot(None),
-            Nonconformity.closed_at >= thirty_days_ago,
-        )
-    ) or 0
-
-    # Open tasks, including a personal slice for the current user
+    open_ncr_statuses = [
+        NCRStatus.OPEN,
+        NCRStatus.CONTAINED,
+        NCRStatus.INVESTIGATING,
+        NCRStatus.ACTION_PENDING,
+        NCRStatus.EFFECTIVENESS_REVIEW,
+    ]
+    open_capa_statuses = [
+        CAPAStatus.DRAFT,
+        CAPAStatus.ASSIGNED,
+        CAPAStatus.IN_PROGRESS,
+        CAPAStatus.PENDING_REVIEW,
+        CAPAStatus.EFFECTIVENESS_CHECK,
+    ]
     open_task_statuses = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW]
-    open_tasks = await db.scalar(
-        select(func.count(Task.id)).where(
-            Task.tenant_id == tenant.id,
-            Task.status.in_(open_task_statuses),
-        )
-    ) or 0
-    my_open_tasks = await db.scalar(
-        select(func.count(Task.id)).where(
-            Task.tenant_id == tenant.id,
-            Task.assignee_id == current_user.id,
-            Task.status.in_(open_task_statuses),
-        )
-    ) or 0
 
-    # Overdue tasks
-    overdue_tasks_result = await db.execute(
-        select(func.count(Task.id)).where(
-            Task.tenant_id == tenant.id,
-            Task.due_date < now,
-            Task.status.not_in([TaskStatus.DONE, TaskStatus.CANCELLED]),
+    # One aggregate query per table instead of one query per metric.
+    ncr_counts = (
+        await db.execute(
+            select(
+                func.count(Nonconformity.id)
+                .filter(Nonconformity.status.in_(open_ncr_statuses))
+                .label("open"),
+                func.count(Nonconformity.id)
+                .filter(Nonconformity.detected_at >= thirty_days_ago)
+                .label("new_30d"),
+                func.count(Nonconformity.id)
+                .filter(
+                    Nonconformity.closed_at.isnot(None),
+                    Nonconformity.closed_at >= thirty_days_ago,
+                )
+                .label("closed_30d"),
+            ).where(Nonconformity.tenant_id == tenant.id)
         )
-    )
-    overdue_tasks = overdue_tasks_result.scalar() or 0
+    ).one()
+    open_ncrs = ncr_counts.open or 0
+    new_ncrs_30d = ncr_counts.new_30d or 0
+    closed_ncrs_30d = ncr_counts.closed_30d or 0
+
+    capa_counts = (
+        await db.execute(
+            select(
+                func.count(CorrectiveAction.id)
+                .filter(CorrectiveAction.status.in_(open_capa_statuses))
+                .label("open"),
+                func.count(CorrectiveAction.id)
+                .filter(
+                    CorrectiveAction.due_date < today,
+                    CorrectiveAction.status.not_in(
+                        [CAPAStatus.COMPLETED, CAPAStatus.REJECTED]
+                    ),
+                )
+                .label("overdue"),
+            ).where(CorrectiveAction.tenant_id == tenant.id)
+        )
+    ).one()
+    open_capas = capa_counts.open or 0
+    overdue_capas = capa_counts.overdue or 0
+
+    task_counts = (
+        await db.execute(
+            select(
+                func.count(Task.id)
+                .filter(Task.status.in_(open_task_statuses))
+                .label("open"),
+                func.count(Task.id)
+                .filter(
+                    Task.assignee_id == current_user.id,
+                    Task.status.in_(open_task_statuses),
+                )
+                .label("my_open"),
+                func.count(Task.id)
+                .filter(
+                    Task.due_date < now,
+                    Task.status.not_in([TaskStatus.DONE, TaskStatus.CANCELLED]),
+                )
+                .label("overdue"),
+            ).where(Task.tenant_id == tenant.id)
+        )
+    ).one()
+    open_tasks = task_counts.open or 0
+    my_open_tasks = task_counts.my_open or 0
+    overdue_tasks = task_counts.overdue or 0
 
     # Inspection pass rate computed from recorded inspection results
-    results_total = await db.scalar(
-        select(func.count(InspectionResult.id))
-        .join(Inspection, Inspection.id == InspectionResult.inspection_id)
-        .where(Inspection.tenant_id == tenant.id)
-    ) or 0
-    results_failed = await db.scalar(
-        select(func.count(InspectionResult.id))
-        .join(Inspection, Inspection.id == InspectionResult.inspection_id)
-        .where(
-            Inspection.tenant_id == tenant.id,
-            InspectionResult.result == InspectionResultValue.FAIL,
+    inspection_counts = (
+        await db.execute(
+            select(
+                func.count(InspectionResult.id).label("total"),
+                func.count(InspectionResult.id)
+                .filter(InspectionResult.result == InspectionResultValue.FAIL)
+                .label("failed"),
+            )
+            .join(Inspection, Inspection.id == InspectionResult.inspection_id)
+            .where(Inspection.tenant_id == tenant.id)
         )
-    ) or 0
+    ).one()
+    results_total = inspection_counts.total or 0
+    results_failed = inspection_counts.failed or 0
     inspection_pass_rate = (
         round((results_total - results_failed) / results_total * 100, 1) if results_total else 0.0
     )

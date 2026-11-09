@@ -48,24 +48,21 @@ async def get_current_user(
 
 async def get_current_tenant(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> Organization:
-    """Get current tenant (organization)"""
-    # In production, fetch from DB or cache
-    # For demo, we use the user's tenant_id
-    from app.models.organization import Organization
-    from app.core.database import get_db_context
-
-    async with get_db_context() as db:
-        result = await db.execute(
-            select(Organization).where(Organization.id == current_user.tenant_id)
+    """Get current tenant (organization) using the request's existing DB session."""
+    # Reuse the session opened by get_current_user instead of creating a second
+    # connection/transaction for every request.
+    result = await db.execute(
+        select(Organization).where(Organization.id == current_user.tenant_id)
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
         )
-        org = result.scalar_one_or_none()
-        if not org:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Organization not found",
-            )
-        return org
+    return org
 
 
 def require_role(*allowed_roles: str):

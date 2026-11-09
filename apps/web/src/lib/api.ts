@@ -448,6 +448,11 @@ class ApiClient {
   }
 
   // Tasks
+  async getTaskStats() {
+    const response = await this.client.get('/tasks/stats');
+    return response.data;
+  }
+
   async getTasks(params?: Record<string, unknown>) {
     const response = await this.client.get('/tasks', { params });
     return response.data;

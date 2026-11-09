@@ -120,6 +120,52 @@ async def list_tasks(
     )
 
 
+@router.get("/stats")
+async def task_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant=Depends(get_current_tenant),
+):
+    """Aggregate task counts for the current tenant in a single query."""
+    now = datetime.now(timezone.utc)
+    counts = (
+        await db.execute(
+            select(
+                func.count(Task.id).label("total"),
+                func.count(Task.id).filter(Task.status == TaskStatus.TODO).label("todo"),
+                func.count(Task.id)
+                .filter(Task.status == TaskStatus.IN_PROGRESS)
+                .label("in_progress"),
+                func.count(Task.id).filter(Task.status == TaskStatus.REVIEW).label("review"),
+                func.count(Task.id).filter(Task.status == TaskStatus.DONE).label("done"),
+                func.count(Task.id)
+                .filter(
+                    Task.due_date.isnot(None),
+                    Task.due_date < now,
+                    Task.status.not_in([TaskStatus.DONE, TaskStatus.CANCELLED]),
+                )
+                .label("overdue"),
+                func.count(Task.id)
+                .filter(
+                    Task.assignee_id == current_user.id,
+                    Task.status.in_([TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW]),
+                )
+                .label("my_open"),
+            ).where(Task.tenant_id == tenant.id)
+        )
+    ).one()
+
+    return {
+        "total": counts.total or 0,
+        "todo": counts.todo or 0,
+        "in_progress": counts.in_progress or 0,
+        "review": counts.review or 0,
+        "done": counts.done or 0,
+        "overdue": counts.overdue or 0,
+        "my_open": counts.my_open or 0,
+    }
+
+
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(
     task_id: UUID,

@@ -1,0 +1,17 @@
+name: Keep API warm
+
+# Render's free web service sleeps after ~15 minutes without traffic, which
+# makes the next request take 30-60 seconds. A lightweight ping every 10
+# minutes keeps the demo responsive. This workflow is intentionally tiny and
+# does not touch the database.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API health endpoint
+        run: curl -fsS --max-time 90 --retry 3 --retry-delay 10 https://qualityagent-api.onrender.com/health

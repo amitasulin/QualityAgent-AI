@@ -233,17 +233,12 @@ export default function TasksPage() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const [all, todo, overdue, done] = await Promise.all([
-        api.getTasks({ page: 1, page_size: 1 }),
-        api.getTasks({ page: 1, page_size: 1, status: 'todo' }),
-        api.getTasks({ page: 1, page_size: 1, overdue: true }),
-        api.getTasks({ page: 1, page_size: 1, status: 'done' }),
-      ]);
+      const data = await api.getTaskStats();
       setStats({
-        total: all.total || 0,
-        todo: todo.total || 0,
-        overdue: overdue.total || 0,
-        done: done.total || 0,
+        total: data.total || 0,
+        todo: data.todo || 0,
+        overdue: data.overdue || 0,
+        done: data.done || 0,
       });
     } catch (err) {
       console.error(err);

@@ -2,11 +2,13 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
@@ -31,12 +33,30 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+@event.listens_for(Session, "after_flush")
+def _mark_session_writes(session: Session, flush_context) -> None:
+    """Remember that this session flushed writes, even after the identity map clears."""
+    session.info["has_writes"] = True
+
+
+def _has_pending_writes(session: AsyncSession) -> bool:
+    """True when a request changed data and therefore needs a commit."""
+    return bool(
+        session.info.get("has_writes")
+        or session.new
+        or session.dirty
+        or session.deleted
+    )
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for getting DB session"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
+            # Read-only requests skip COMMIT, saving a full database round trip.
+            if _has_pending_writes(session):
+                await session.commit()
         except Exception:
             await session.rollback()
             raise
@@ -50,7 +70,8 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
+            if _has_pending_writes(session):
+                await session.commit()
         except Exception:
             await session.rollback()
             raise

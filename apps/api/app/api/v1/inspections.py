@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.dependencies import get_current_user, get_current_tenant
 from app.api.v1.nonconformities import generate_ncr_number
@@ -353,10 +353,10 @@ async def list_inspections(
         .limit(pagination.page_size)
         .options(
             selectinload(Inspection.results),
-            selectinload(Inspection.plan),
-            selectinload(Inspection.product),
-            selectinload(Inspection.site),
-            selectinload(Inspection.inspector),
+            joinedload(Inspection.plan),
+            joinedload(Inspection.product),
+            joinedload(Inspection.site),
+            joinedload(Inspection.inspector),
         )
     )
     inspections = result.scalars().all()
