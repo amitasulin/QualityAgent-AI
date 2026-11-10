@@ -38,14 +38,17 @@ export function Header() {
         setResolvedTheme(applyTheme('system'));
       }
     };
+    const handleStorage = () => {
+      setResolvedTheme(applyTheme(getStoredTheme()));
+    };
 
     window.addEventListener(THEME_EVENT, sync);
-    window.addEventListener('storage', sync);
+    window.addEventListener('storage', handleStorage);
     media.addEventListener('change', handleSystemChange);
 
     return () => {
       window.removeEventListener(THEME_EVENT, sync);
-      window.removeEventListener('storage', sync);
+      window.removeEventListener('storage', handleStorage);
       media.removeEventListener('change', handleSystemChange);
     };
   }, []);
