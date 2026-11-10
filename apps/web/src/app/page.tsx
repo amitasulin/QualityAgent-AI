@@ -11,7 +11,9 @@ import {
   ChevronLeft,
   Clock,
   LayoutDashboard,
+  Minus,
   RefreshCw,
+  TrendingDown,
   TrendingUp,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
@@ -126,6 +128,22 @@ export default function DashboardPage() {
   const maxCount = Math.max(1, ...trend.map((t) => t.count));
   const trendTotal = trend.reduce((sum, item) => sum + item.count, 0);
   const passRate = metrics?.inspection_pass_rate ?? 0;
+
+  // Y-axis with "nice" ticks so the grid reads cleanly.
+  const rawStep = Math.max(1, maxCount / 4);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const normalized = rawStep / magnitude;
+  const niceStep =
+    (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 3 ? 3 : normalized <= 4 ? 4 : normalized <= 5 ? 5 : 10) *
+    magnitude;
+  const yMax = Math.max(4, niceStep * 4);
+  const yTicks = [4, 3, 2, 1, 0].map((i) => Math.round(i * niceStep));
+
+  const average = trend.length ? trendTotal / trend.length : 0;
+  const averageLabel = Number.isInteger(average) ? String(average) : average.toFixed(1);
+  const lastCount = trend[trend.length - 1]?.count ?? 0;
+  const prevCount = trend[trend.length - 2]?.count ?? 0;
+  const monthDelta = lastCount - prevCount;
 
   if (loading) {
     return (
@@ -290,6 +308,27 @@ export default function DashboardPage() {
                 <div className="text-left">
                   <p className="text-xs text-secondary-400">סה״כ בתקופה</p>
                   <p className="text-lg font-bold text-secondary-900 tabular-nums">{trendTotal}</p>
+                  {trend.length > 1 && (
+                    <p
+                      className={cn(
+                        'mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium tabular-nums',
+                        monthDelta > 0
+                          ? 'text-danger-600'
+                          : monthDelta < 0
+                            ? 'text-success-600'
+                            : 'text-secondary-400'
+                      )}
+                    >
+                      {monthDelta > 0 ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : monthDelta < 0 ? (
+                        <TrendingDown className="h-3 w-3" />
+                      ) : (
+                        <Minus className="h-3 w-3" />
+                      )}
+                      {monthDelta === 0 ? 'ללא שינוי' : `${Math.abs(monthDelta)} מול חודש קודם`}
+                    </p>
+                  )}
                 </div>
               </CardHeader>
               <CardBody>
@@ -301,58 +340,163 @@ export default function DashboardPage() {
                     className="py-8"
                   />
                 ) : (
-                  <div className="relative">
-                    <div className="absolute inset-x-0 top-0 bottom-7 flex flex-col justify-between pointer-events-none">
-                      {[0, 1, 2, 3].map((i) => (
-                        <div key={i} className="border-t border-dashed border-secondary-100" />
-                      ))}
-                    </div>
-                    <div
-                      className={cn(
-                        'relative flex items-end justify-between h-64 pb-7',
-                        trend.length > 8 ? 'gap-1' : 'gap-2 sm:gap-4'
-                      )}
-                    >
-                      {trend.map((item, index) => {
-                        const height = Math.max(6, (item.count / maxCount) * 190);
-                        const isLast = index === trend.length - 1;
-                        const showLabel = trend.length <= 6 || index % 2 === 0 || isLast;
-                        return (
-                          <div
-                            key={`${item.year ?? ''}-${item.month}-${index}`}
-                            className="flex-1 flex flex-col items-center justify-end min-w-0 h-full group"
-                            title={`${item.month} ${item.year ?? ''}: ${item.count} חריגות`}
-                          >
-                            <span className="text-xs font-semibold text-secondary-500 tabular-nums mb-1.5">
-                              {item.count}
-                            </span>
+                  <div>
+                    <div className="flex gap-3">
+                      {/* Y axis (right side in RTL) */}
+                      <div className="flex h-52 shrink-0 flex-col justify-between text-[10px] leading-none text-secondary-400 tabular-nums sm:h-56">
+                        {yTicks.map((tick) => (
+                          <span key={tick}>{tick}</span>
+                        ))}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="relative mt-7 h-52 sm:h-56">
+                          {/* Grid */}
+                          {[0, 1, 2, 3, 4].map((i) => (
                             <div
+                              key={i}
                               className={cn(
-                                'w-full max-w-[46px] rounded-t-lg transition-all duration-300',
-                                isLast
-                                  ? 'bg-gradient-to-t from-primary-600 to-primary-400'
-                                  : 'bg-gradient-to-t from-primary-500/70 to-primary-300 group-hover:from-primary-600 group-hover:to-primary-400'
+                                'pointer-events-none absolute inset-x-0 border-t',
+                                i === 4 ? 'border-secondary-200' : 'border-dashed border-secondary-100'
                               )}
-                              style={{ height: `${height}px` }}
+                              style={{ top: `${(i / 4) * 100}%` }}
                             />
-                            <span
-                              className={cn(
-                                'absolute bottom-0 text-secondary-500 whitespace-nowrap',
-                                trend.length > 8 ? 'text-[10px]' : 'text-xs'
-                              )}
+                          ))}
+
+                          {/* Average line */}
+                          {trendTotal > 0 && (
+                            <div
+                              className="pointer-events-none absolute inset-x-0 z-[1]"
+                              style={{ bottom: `${(average / yMax) * 100}%` }}
                             >
-                              {showLabel ? item.month : '\u00A0'}
-                            </span>
+                              <div className="border-t border-dashed border-primary-400/70" />
+                              <span className="absolute -top-2.5 left-0 rounded bg-white px-1.5 text-[10px] font-medium text-primary-600">
+                                ממוצע {averageLabel}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Bars */}
+                          <div
+                            className={cn(
+                              'absolute inset-0 z-10 flex items-end justify-between',
+                              trend.length > 8 ? 'gap-1' : 'gap-2 sm:gap-3'
+                            )}
+                          >
+                            {trend.map((item, index) => {
+                              const isLast = index === trend.length - 1;
+                              const heightPct = (item.count / yMax) * 100;
+                              const share =
+                                trendTotal > 0 ? Math.round((item.count / trendTotal) * 100) : 0;
+                              return (
+                                <div
+                                  key={`${item.year ?? ''}-${item.month}-${index}`}
+                                  className="group relative flex h-full min-w-0 flex-1 items-end justify-center"
+                                >
+                                  {/* Tooltip */}
+                                  <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2 whitespace-nowrap rounded-lg bg-secondary-900 px-2.5 py-1.5 text-[11px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                                    <span className="font-semibold">
+                                      {item.month} {item.year ?? ''}
+                                    </span>
+                                    <span className="mx-1 text-secondary-400">·</span>
+                                    <span>{item.count} חריגות</span>
+                                    {trendTotal > 0 && (
+                                      <span className="text-secondary-300"> ({share}%)</span>
+                                    )}
+                                  </div>
+
+                                  <div
+                                    className="relative flex w-full max-w-[46px] flex-col items-center justify-end"
+                                    style={
+                                      item.count > 0
+                                        ? { height: `${Math.max(heightPct, 4)}%` }
+                                        : undefined
+                                    }
+                                  >
+                                    {item.count > 0 && (
+                                      <span
+                                        className={cn(
+                                          'absolute -top-6 text-xs font-semibold tabular-nums',
+                                          isLast ? 'text-primary-700' : 'text-secondary-500'
+                                        )}
+                                      >
+                                        {item.count}
+                                      </span>
+                                    )}
+                                    <div
+                                      className={cn(
+                                        'w-full rounded-t-lg transition-all duration-300',
+                                        item.count === 0
+                                          ? 'h-1 bg-secondary-200 group-hover:bg-secondary-300'
+                                          : isLast
+                                            ? 'h-full bg-gradient-to-t from-primary-700 via-primary-500 to-primary-300 shadow-lg shadow-primary-500/25 ring-1 ring-inset ring-white/30'
+                                            : 'h-full bg-gradient-to-t from-primary-500 to-primary-300/80 group-hover:from-primary-600 group-hover:to-primary-400'
+                                      )}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
+                        </div>
+
+                        {/* Month labels */}
+                        <div
+                          className={cn(
+                            'mt-2 flex justify-between',
+                            trend.length > 8 ? 'gap-1' : 'gap-2 sm:gap-3'
+                          )}
+                        >
+                          {trend.map((item, index) => {
+                            const isLast = index === trend.length - 1;
+                            const showLabel = trend.length <= 6 || index % 2 === 0 || isLast;
+                            return (
+                              <div
+                                key={`${item.year ?? ''}-${item.month}-label-${index}`}
+                                className="min-w-0 flex-1 text-center"
+                              >
+                                <span
+                                  className={cn(
+                                    'whitespace-nowrap',
+                                    trend.length > 8 ? 'text-[10px]' : 'text-xs',
+                                    isLast
+                                      ? 'font-semibold text-primary-700'
+                                      : 'text-secondary-500'
+                                  )}
+                                >
+                                  {showLabel ? item.month : '\u00A0'}
+                                </span>
+                                {isLast && (
+                                  <span className="mx-auto mt-1 block h-1 w-1 rounded-full bg-primary-500" />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                    {trend.length > 0 && (
-                      <p className="mt-1 text-center text-xs text-secondary-400">
+
+                    {/* Legend + range */}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-secondary-100 pt-3">
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-secondary-500">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-sm bg-gradient-to-t from-primary-500 to-primary-300" />
+                          חריגות שנפתחו
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-0 w-4 border-t border-dashed border-primary-400" />
+                          ממוצע לתקופה
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary-500" />
+                          החודש הנוכחי
+                        </span>
+                      </div>
+                      <p className="text-xs text-secondary-400">
                         {trend[0].month} {trend[0].year ?? ''} – {trend[trend.length - 1].month}{' '}
                         {trend[trend.length - 1].year ?? ''}
                       </p>
-                    )}
+                    </div>
                   </div>
                 )}
               </CardBody>
