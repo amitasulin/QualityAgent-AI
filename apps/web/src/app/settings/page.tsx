@@ -23,6 +23,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { useAuthStore } from '@/lib/store';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { getStoredTheme, setTheme, type Theme } from '@/lib/theme';
 
 const tabs = [
   { id: 'profile', label: 'פרופיל', icon: User },
@@ -51,7 +52,14 @@ export default function SettingsPage() {
     confirm_password: '',
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const [appearance, setAppearance] = useState({ theme: 'system', density: 'comfortable' });
+  const [appearance, setAppearance] = useState<{ theme: Theme; density: string }>({
+    theme: 'system',
+    density: 'comfortable',
+  });
+
+  useEffect(() => {
+    setAppearance((prev) => ({ ...prev, theme: getStoredTheme() }));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,8 +131,14 @@ export default function SettingsPage() {
     }
   };
 
+  const handleThemeChange = (mode: Theme) => {
+    setAppearance((prev) => ({ ...prev, theme: mode }));
+    setTheme(mode);
+  };
+
   const handleSaveAppearance = () => {
     try {
+      setTheme(appearance.theme);
       localStorage.setItem('qualityagent-appearance', JSON.stringify(appearance));
       alert('ההעדפות נשמרו');
     } catch (err) {
@@ -373,10 +387,12 @@ export default function SettingsPage() {
                           name="theme"
                           value={mode}
                           checked={appearance.theme === mode}
-                          onChange={() => setAppearance((prev) => ({ ...prev, theme: mode }))}
+                          onChange={() => handleThemeChange(mode as Theme)}
                           className="sr-only"
                         />
-                        <div className="font-medium text-secondary-900 capitalize">{mode}</div>
+                        <div className="font-medium text-secondary-900">
+                          {mode === 'light' ? 'בהיר' : mode === 'dark' ? 'כהה' : 'מערכת'}
+                        </div>
                         <p className="text-xs text-secondary-500 mt-1">
                           {mode === 'light' && 'בהיר תמיד'}
                           {mode === 'dark' && 'כהה תמיד'}

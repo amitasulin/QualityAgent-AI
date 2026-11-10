@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Fragment } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,14 @@ import { Menu, Bell, User, LogOut, Settings, ChevronDown, Moon, Sun } from 'luci
 import { useUIStore, useAuthStore, useNotificationStore } from '@/lib/store';
 import { Button } from '@/components/ui/Button';
 import { formatRelativeTime } from '@/lib/utils';
+import {
+  THEME_EVENT,
+  applyTheme,
+  getResolvedTheme,
+  getStoredTheme,
+  setTheme,
+  type ResolvedTheme,
+} from '@/lib/theme';
 
 export function Header() {
   const router = useRouter();
@@ -16,8 +24,37 @@ export function Header() {
   const { notifications, removeNotification } = useNotificationStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light');
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  useEffect(() => {
+    const sync = () => setResolvedTheme(getResolvedTheme());
+    sync();
+
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemChange = () => {
+      if (getStoredTheme() === 'system') {
+        setResolvedTheme(applyTheme('system'));
+      }
+    };
+
+    window.addEventListener(THEME_EVENT, sync);
+    window.addEventListener('storage', sync);
+    media.addEventListener('change', handleSystemChange);
+
+    return () => {
+      window.removeEventListener(THEME_EVENT, sync);
+      window.removeEventListener('storage', sync);
+      media.removeEventListener('change', handleSystemChange);
+    };
+  }, []);
+
+  const isDark = resolvedTheme === 'dark';
+
+  const toggleTheme = () => {
+    setResolvedTheme(setTheme(isDark ? 'light' : 'dark'));
+  };
 
   const handleLogout = () => {
     logout();
@@ -45,6 +82,18 @@ export function Header() {
 
         {/* Right side actions */}
         <div className="flex items-center gap-2">
+          {/* Theme toggle */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="relative p-2 text-secondary-400 hover:text-secondary-600 rounded-lg hover:bg-secondary-100 transition-colors"
+            aria-label={isDark ? 'הפעל מצב בהיר' : 'הפעל מצב כהה'}
+            aria-pressed={isDark}
+            title={isDark ? 'מצב בהיר' : 'מצב כהה'}
+          >
+            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
+
           {/* Notifications */}
           <div className="relative">
             <button
