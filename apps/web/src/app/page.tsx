@@ -195,7 +195,7 @@ function StatCard({
   return (
     <Link
       href={href}
-      className="group relative overflow-hidden rounded-2xl border border-secondary-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-secondary-300 hover:shadow-lg"
+      className="group relative block h-full overflow-hidden rounded-2xl border border-secondary-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-secondary-300 hover:shadow-lg"
     >
       <span className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-l', tones.accent)} />
       <div className="flex items-start justify-between gap-3">
@@ -430,7 +430,7 @@ export default function DashboardPage() {
         )}
 
         {/* KPI cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             href="/nonconformities"
             label="אי התאמות פתוחות"
