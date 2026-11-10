@@ -326,7 +326,11 @@ export default function DashboardPage() {
                       ) : (
                         <Minus className="h-3 w-3" />
                       )}
-                      {monthDelta === 0 ? 'ללא שינוי' : `${Math.abs(monthDelta)} מול חודש קודם`}
+                      {monthDelta === 0
+                        ? 'ללא שינוי'
+                        : monthDelta > 0
+                          ? `עלייה של ${monthDelta} מול חודש קודם`
+                          : `ירידה של ${Math.abs(monthDelta)} מול חודש קודם`}
                     </p>
                   )}
                 </div>
@@ -343,14 +347,14 @@ export default function DashboardPage() {
                   <div>
                     <div className="flex gap-3">
                       {/* Y axis (right side in RTL) */}
-                      <div className="flex h-52 shrink-0 flex-col justify-between text-[10px] leading-none text-secondary-400 tabular-nums sm:h-56">
+                      <div className="mt-7 flex h-52 shrink-0 flex-col justify-between text-[10px] leading-none text-secondary-400 tabular-nums sm:h-56">
                         {yTicks.map((tick) => (
                           <span key={tick}>{tick}</span>
                         ))}
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="relative mt-7 h-52 sm:h-56">
+                        <div className="relative mt-7 h-52 sm:h-56" role="img" aria-label={`מגמת אי התאמות: ${trend.map((t) => `${t.month} ${t.year ?? ''} — ${t.count}`).join(', ')}`}>
                           {/* Grid */}
                           {[0, 1, 2, 3, 4].map((i) => (
                             <div
@@ -370,7 +374,7 @@ export default function DashboardPage() {
                               style={{ bottom: `${(average / yMax) * 100}%` }}
                             >
                               <div className="border-t border-dashed border-primary-400/70" />
-                              <span className="absolute -top-2.5 left-0 rounded bg-white px-1.5 text-[10px] font-medium text-primary-600">
+                              <span className="absolute -top-2.5 right-0 rounded bg-white px-1.5 text-[10px] font-medium text-primary-600">
                                 ממוצע {averageLabel}
                               </span>
                             </div>
@@ -394,7 +398,10 @@ export default function DashboardPage() {
                                   className="group relative flex h-full min-w-0 flex-1 items-end justify-center"
                                 >
                                   {/* Tooltip */}
-                                  <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2 whitespace-nowrap rounded-lg bg-secondary-900 px-2.5 py-1.5 text-[11px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                                  <div
+                                    aria-hidden="true"
+                                    className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2 whitespace-nowrap rounded-lg bg-secondary-900 px-2.5 py-1.5 text-[11px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
+                                  >
                                     <span className="font-semibold">
                                       {item.month} {item.year ?? ''}
                                     </span>
