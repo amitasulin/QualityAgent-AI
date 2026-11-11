@@ -88,7 +88,7 @@ quality-agent/
 
 ### DevOps
 - **Docker & Docker Compose** - קונטיינריזציה
-- **GitHub Actions** (מתוכנן) - CI/CD
+- **GitHub Actions** - CI: type-check, בדיקות יחידה ובנייה בכל push
 
 ## 📋 תכונות עיקריות (MVP)
 
@@ -214,8 +214,12 @@ pytest -v
 
 # Frontend tests
 cd apps/web
-npm test
+npm test          # הרצה חד-פעמית
+npm run test:watch
 ```
+
+ה-CI (`.github/workflows/ci.yml`) מריץ בכל push ל-`main` וב-PR:
+`npm ci` → `type-check` → `vitest` → `next build`, ובמקביל `pytest` על ה-API.
 
 ## 📦 בנייה לפרודקשן
 
