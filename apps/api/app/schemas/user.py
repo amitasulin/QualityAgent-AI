@@ -19,7 +19,12 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    identity_id: str = Field(..., min_length=1, max_length=255, description="External identity provider ID")
+    password: str = Field(..., min_length=8, max_length=128, description="Initial password")
+    identity_id: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="External identity provider ID (generated automatically when omitted)",
+    )
 
 
 class UserUpdate(BaseModel):
@@ -29,6 +34,9 @@ class UserUpdate(BaseModel):
     site_id: Optional[UUID] = None
     phone: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
+    password: Optional[str] = Field(
+        None, min_length=8, max_length=128, description="Set a new password when provided"
+    )
 
 
 class UserResponse(UserBase, TimestampSchema):

@@ -90,3 +90,23 @@ export const PRODUCT_INITIAL: FormValues = {
   drawing_number: '',
   is_active: true,
 };
+
+export const SITE_FIELDS: FieldDef[] = [
+  { name: 'name', label: 'שם אתר *', required: true, placeholder: 'מפעל ראשי' },
+  { name: 'code', label: 'קוד אתר', placeholder: 'SITE-001', dir: 'ltr' },
+  { name: 'contact_person', label: 'איש קשר', placeholder: 'שם מלא' },
+  { name: 'contact_email', label: 'אימייל', type: 'email', dir: 'ltr', placeholder: 'name@company.com' },
+  { name: 'contact_phone', label: 'טלפון', type: 'tel', dir: 'ltr', placeholder: '03-1234567' },
+  { name: 'address', label: 'כתובת', fullWidth: true, placeholder: 'רחוב, עיר, מיקוד' },
+  { name: 'is_active', label: 'אתר פעיל', type: 'checkbox' },
+];
+
+export const SITE_INITIAL: FormValues = {
+  name: '',
+  code: '',
+  contact_person: '',
+  contact_email: '',
+  contact_phone: '',
+  address: '',
+  is_active: true,
+};

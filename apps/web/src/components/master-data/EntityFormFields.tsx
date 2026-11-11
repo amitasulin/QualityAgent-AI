@@ -13,6 +13,7 @@ export interface FieldDef {
     | 'text'
     | 'email'
     | 'tel'
+    | 'password'
     | 'number'
     | 'date'
     | 'datetime-local'
@@ -29,6 +30,7 @@ export interface FieldDef {
   dir?: 'ltr' | 'rtl';
   options?: Array<{ value: string; label: string }>;
   fullWidth?: boolean;
+  disabled?: boolean;
 }
 
 export function valuesFromEntity(
@@ -113,6 +115,7 @@ export function EntityFormFields({ fields, values, onChange }: EntityFormFieldsP
                 name={field.name}
                 checked={Boolean(value)}
                 onChange={(e) => onChange(field.name, e.target.checked)}
+                disabled={field.disabled}
                 className="h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
               />
               <span className="text-sm font-medium text-secondary-700">{field.label}</span>
@@ -133,6 +136,7 @@ export function EntityFormFields({ fields, values, onChange }: EntityFormFieldsP
                 helperText={field.helperText}
                 required={field.required}
                 dir={field.dir}
+                disabled={field.disabled}
               />
             </div>
           );
@@ -150,6 +154,7 @@ export function EntityFormFields({ fields, values, onChange }: EntityFormFieldsP
                 placeholder={field.placeholder}
                 helperText={field.helperText}
                 required={field.required}
+                disabled={field.disabled}
               />
             </div>
           );
@@ -170,6 +175,8 @@ export function EntityFormFields({ fields, values, onChange }: EntityFormFieldsP
               min={field.min}
               max={field.max}
               step={field.step}
+              autoComplete={field.type === 'password' ? 'new-password' : undefined}
+              disabled={field.disabled}
             />
           </div>
         );

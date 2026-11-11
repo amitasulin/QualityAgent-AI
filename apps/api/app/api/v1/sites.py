@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -35,6 +35,7 @@ async def create_site(
 async def list_sites(
     pagination: PaginationParams = Depends(),
     is_active: Optional[bool] = Query(None),
+    search: Optional[str] = Query(None, max_length=255),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     tenant=Depends(get_current_tenant),
@@ -44,14 +45,23 @@ async def list_sites(
 
     if is_active is not None:
         query = query.where(Site.is_active == is_active)
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                Site.name.ilike(term),
+                Site.code.ilike(term),
+                Site.address.ilike(term),
+            )
+        )
 
     # Count total
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
-    # Apply pagination
-    query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
+    # Apply ordering and pagination
     query = query.order_by(Site.created_at.desc())
+    query = query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
 
     result = await db.execute(query)
     sites = result.scalars().all()

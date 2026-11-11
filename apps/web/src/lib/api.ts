@@ -147,9 +147,29 @@ class ApiClient {
     return response.data;
   }
 
+  async getSite(id: string) {
+    const response = await this.client.get(`/sites/${id}`);
+    return response.data;
+  }
+
+  async createSite(data: Record<string, unknown>) {
+    const response = await this.client.post('/sites', data);
+    return response.data;
+  }
+
+  async updateSite(id: string, data: Record<string, unknown>) {
+    const response = await this.client.patch(`/sites/${id}`, data);
+    return response.data;
+  }
+
   // Users
   async getUsers(params?: Record<string, unknown>) {
     const response = await this.client.get('/users', { params });
+    return response.data;
+  }
+
+  async createUser(data: Record<string, unknown>) {
+    const response = await this.client.post('/users', data);
     return response.data;
   }
 

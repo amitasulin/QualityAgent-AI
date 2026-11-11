@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { ComponentType } from 'react';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -16,13 +17,21 @@ import {
   Truck,
   Bot,
   Settings,
+  Building2,
+  UserCog,
   ChevronLeft,
   ChevronRight,
   HelpCircle,
 } from 'lucide-react';
 import { useUIStore } from '@/lib/store';
+import { usePermissions } from '@/lib/permissions';
 
-const navigation = [
+const navigation: Array<{
+  name: string;
+  href: string;
+  icon: ComponentType<{ className?: string }>;
+  managerOnly?: boolean;
+}> = [
   { name: 'לוח בקרה', href: '/', icon: LayoutDashboard },
   { name: 'אי התאמות', href: '/nonconformities', icon: AlertTriangle },
   { name: 'פעולות מתקנות', href: '/corrective-actions', icon: CheckSquare },
@@ -32,7 +41,9 @@ const navigation = [
   { name: 'ספקים', href: '/suppliers', icon: Truck },
   { name: 'לקוחות', href: '/customers', icon: Users },
   { name: 'מוצרים', href: '/products', icon: Package },
+  { name: 'אתרים', href: '/sites', icon: Building2 },
   { name: 'מסמכים', href: '/documents', icon: FolderOpen },
+  { name: 'משתמשים', href: '/users', icon: UserCog, managerOnly: true },
   { name: 'סוכן AI', href: '/agent', icon: Bot },
   { name: 'הגדרות', href: '/settings', icon: Settings },
 ];
@@ -40,6 +51,8 @@ const navigation = [
 export function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar } = useUIStore();
+  const { isManager } = usePermissions();
+  const visibleNavigation = navigation.filter((item) => !item.managerOnly || isManager);
 
   return (
     <>
@@ -84,7 +97,7 @@ export function Sidebar() {
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto py-4 px-2" role="navigation" aria-label="ראשי">
             <ul className="space-y-1" role="list">
-              {navigation.map((item) => {
+              {visibleNavigation.map((item) => {
                 const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
                 const Icon = item.icon;
 

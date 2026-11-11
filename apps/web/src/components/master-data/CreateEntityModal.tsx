@@ -21,6 +21,7 @@ interface CreateEntityModalProps {
   initialValues: FormValues;
   submitLabel?: string;
   errorFallback?: string;
+  mode?: 'create' | 'update';
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
 }
 
@@ -33,6 +34,7 @@ export function CreateEntityModal({
   initialValues,
   submitLabel = 'צור',
   errorFallback = 'יצירת הרשומה נכשלה',
+  mode = 'create',
   onSubmit,
 }: CreateEntityModalProps) {
   const [values, setValues] = useState<FormValues>(initialValues);
@@ -58,7 +60,7 @@ export function CreateEntityModal({
     setLoading(true);
     setError(null);
     try {
-      const payload = payloadFromValues(values, fields, 'create');
+      const payload = payloadFromValues(values, fields, mode);
       await onSubmit(payload);
       onClose();
     } catch (err) {

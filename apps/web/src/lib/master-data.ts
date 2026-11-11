@@ -44,6 +44,19 @@ export interface Product {
   updated_at?: string;
 }
 
+export interface Site {
+  id: string;
+  name: string;
+  code?: string | null;
+  address?: string | null;
+  contact_person?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 /**
  * Turn an API/validation error into a readable Hebrew message.
  */
