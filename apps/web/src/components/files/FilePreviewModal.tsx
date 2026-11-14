@@ -173,7 +173,7 @@ export function FilePreviewModal({
             {text}
           </pre>
         ) : docx ? (
-          <div ref={docxContainer} className="h-full w-full overflow-auto bg-white p-6" />
+          <div ref={docxContainer} className="file-preview-docx h-full w-full overflow-auto p-6" />
         ) : url && mimeType?.startsWith('image/') ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={url} alt={fileName} className="max-h-full max-w-full object-contain" />

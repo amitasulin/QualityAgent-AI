@@ -641,3 +641,20 @@ html.dark ::selection {
   background-color: rgba(14, 165, 233, 0.35);
   color: #f8fafc;
 }
+
+/* ------------------------------------------------------------------ */
+/* File previews                                                       */
+/* ------------------------------------------------------------------ */
+
+/* Word documents keep a paper-like light surface in both themes: the
+   renderer always draws black text. */
+.file-preview-docx,
+html.dark .file-preview-docx {
+  background-color: #ffffff !important;
+}
+
+.file-preview-docx .docx,
+.file-preview-docx .docx-wrapper {
+  background-color: #ffffff !important;
+  color: #111827;
+}
