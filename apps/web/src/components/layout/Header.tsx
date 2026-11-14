@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { Menu, Bell, User, LogOut, Settings, ChevronDown, Moon, Sun } from 'lucide-react';
 import { useUIStore, useAuthStore, useNotificationStore } from '@/lib/store';
 import { Button } from '@/components/ui/Button';
+import { GlobalSearch } from './GlobalSearch';
 import { formatRelativeTime } from '@/lib/utils';
 import {
   THEME_EVENT,
@@ -82,6 +83,9 @@ export function Header() {
         <div className="flex-1 lg:hidden">
           <h1 className="text-lg font-semibold text-secondary-900 truncate">QualityAgent</h1>
         </div>
+
+        {/* Global search */}
+        <GlobalSearch />
 
         {/* Right side actions */}
         <div className="flex items-center gap-2">

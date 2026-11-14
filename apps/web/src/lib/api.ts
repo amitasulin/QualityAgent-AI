@@ -596,6 +596,12 @@ class ApiClient {
     const response = await this.client.post(`/tasks/${id}/complete`);
     return response.data;
   }
+
+  // Global search
+  async search(query: string, limit = 20) {
+    const response = await this.client.get('/search', { params: { q: query, limit } });
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

@@ -17,6 +17,7 @@ from app.api.v1 import (
     tasks,
     dashboard,
     auth,
+    search,
 )
 
 api_router = APIRouter()
@@ -36,3 +37,4 @@ api_router.include_router(complaints.router, prefix="/complaints", tags=["Compla
 api_router.include_router(agent.router, prefix="/agent", tags=["AI Agent"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+api_router.include_router(search.router, prefix="/search", tags=["Search"])
