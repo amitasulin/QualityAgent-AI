@@ -10,6 +10,7 @@ from app.models import (
     customer,
     supplier,
     document,
+    file_object,
     nonconformity,
     corrective_action,
     agent,

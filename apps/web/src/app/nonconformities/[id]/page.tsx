@@ -9,6 +9,7 @@ import {
   Barcode,
   CalendarClock,
   CheckCircle2,
+  Download,
   FileText,
   Hash,
   Paperclip,
@@ -311,6 +312,7 @@ export default function NCRDetailPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [attachmentToDelete, setAttachmentToDelete] = useState<NCRAttachment | null>(null);
 
   const loadNcr = useCallback(async () => {
@@ -435,6 +437,18 @@ export default function NCRDetailPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDownloadAttachment = async (attachment: NCRAttachment) => {
+    if (!ncr) return;
+    setDownloadingId(attachment.id);
+    try {
+      await api.downloadNcrAttachment(ncr.id, attachment.id, attachment.file_name);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'הורדת הקובץ נכשלה'));
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -677,6 +691,17 @@ export default function NCRDetailPage() {
                               <Badge variant="secondary">
                                 {a.file_size ? `${Math.round(a.file_size / 1024)} KB` : '—'}
                               </Badge>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`הורד ${a.file_name}`}
+                                title="הורד קובץ"
+                                loading={downloadingId === a.id}
+                                onClick={() => handleDownloadAttachment(a)}
+                                className="text-primary-600 hover:text-primary-700"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
                               {canDeleteAttachment && (
                                 <Button
                                   variant="ghost"

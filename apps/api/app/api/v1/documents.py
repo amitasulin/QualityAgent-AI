@@ -2,7 +2,7 @@
 from typing import Optional, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, File, Form, UploadFile
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from app.core.sorting import apply_sorting
 from app.api.dependencies import get_current_user, get_current_tenant, require_role
 from app.models.document import Document, DocumentVersion, DocumentStatus
 from app.models.user import User
+from app.services.storage import get_file, save_upload, stream_file
 from app.schemas.document import (
     DocumentCreate,
     DocumentUpdate,
@@ -34,6 +35,15 @@ DOCUMENT_SORT_COLUMNS = {
     "created_at": Document.created_at,
     "updated_at": Document.updated_at,
 }
+
+
+async def _unset_current_versions(db: AsyncSession, document_id: UUID) -> None:
+    """Mark every existing version of a document as not current."""
+    versions_result = await db.execute(
+        select(DocumentVersion).where(DocumentVersion.document_id == document_id)
+    )
+    for existing_version in versions_result.scalars():
+        existing_version.is_current = False
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -207,17 +217,7 @@ async def create_document_version(
 
     # If this is marked as current, unset other versions
     if version_data.is_current:
-        await db.execute(
-            select(DocumentVersion)
-            .where(DocumentVersion.document_id == document_id)
-            .execution_options(synchronize_session="fetch")
-        )
-        # Reset all to not current
-        versions_result = await db.execute(
-            select(DocumentVersion).where(DocumentVersion.document_id == document_id)
-        )
-        for v in versions_result.scalars():
-            v.is_current = False
+        await _unset_current_versions(db, document_id)
 
     version = DocumentVersion(
         **version_data.model_dump(exclude={"document_id"}),
@@ -234,6 +234,109 @@ async def create_document_version(
 
     await db.refresh(version)
     return version
+
+
+@router.post(
+    "/{document_id}/versions/upload",
+    response_model=DocumentVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_document_version(
+    document_id: UUID,
+    file: UploadFile = File(...),
+    version: str = Form(...),
+    change_summary: Optional[str] = Form(None),
+    is_current: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "quality_manager")),
+    tenant=Depends(get_current_tenant),
+):
+    """Create a document version from a real uploaded file."""
+    from app.core.exceptions import ConflictError, NotFoundError
+
+    doc_result = await db.execute(
+        select(Document).where(Document.id == document_id, Document.tenant_id == tenant.id)
+    )
+    document = doc_result.scalar_one_or_none()
+    if not document:
+        raise NotFoundError("Document", str(document_id))
+
+    clean_version = version.strip()
+    if not clean_version:
+        raise ConflictError("Version is required")
+
+    existing = await db.execute(
+        select(DocumentVersion).where(
+            DocumentVersion.document_id == document_id,
+            DocumentVersion.version == clean_version,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise ConflictError("Version already exists for this document")
+
+    stored = await save_upload(
+        db,
+        upload=file,
+        tenant_id=tenant.id,
+        prefix=f"documents/{document_id}",
+        user_id=current_user.id,
+    )
+
+    if is_current:
+        await _unset_current_versions(db, document_id)
+
+    version_row = DocumentVersion(
+        document_id=document_id,
+        version=clean_version,
+        file_key=stored.key,
+        file_name=stored.file_name,
+        file_size=stored.size_bytes,
+        mime_type=stored.mime_type,
+        checksum=stored.checksum,
+        change_summary=(change_summary or "").strip() or None,
+        is_current=is_current,
+        uploaded_by_id=current_user.id,
+    )
+    db.add(version_row)
+    await db.flush()
+
+    if is_current:
+        document.current_version_id = version_row.id
+        document.status = DocumentStatus.PUBLISHED
+
+    await db.refresh(version_row)
+    return version_row
+
+
+@router.get("/{document_id}/versions/{version_id}/download")
+async def download_document_version(
+    document_id: UUID,
+    version_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant=Depends(get_current_tenant),
+):
+    """Download the stored file of a document version."""
+    from app.core.exceptions import NotFoundError
+
+    result = await db.execute(
+        select(DocumentVersion)
+        .join(Document)
+        .where(
+            DocumentVersion.id == version_id,
+            DocumentVersion.document_id == document_id,
+            Document.tenant_id == tenant.id,
+        )
+    )
+    version_row = result.scalar_one_or_none()
+    if not version_row:
+        raise NotFoundError("DocumentVersion", str(version_id))
+
+    file_object = await get_file(db, tenant_id=tenant.id, key=version_row.file_key)
+    if not file_object:
+        raise NotFoundError("File", version_row.file_name)
+
+    return stream_file(file_object)
 
 
 @router.get("/{document_id}/versions", response_model=List[DocumentVersionResponse])

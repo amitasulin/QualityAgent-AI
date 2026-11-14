@@ -9,6 +9,7 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  Download,
   FileText,
   FolderOpen,
   History,
@@ -23,7 +24,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Input, Select, Textarea } from '@/components/ui/Input';
+import { Input, Textarea } from '@/components/ui/Input';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -125,6 +126,19 @@ export default function DocumentDetailPage() {
 
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [versionSuccess, setVersionSuccess] = useState<string | null>(null);
+  const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
+
+  const handleDownloadVersion = async (version: DocumentVersion) => {
+    if (!document) return;
+    setDownloadingVersionId(version.id);
+    try {
+      await api.downloadDocumentVersion(document.id, version.id, version.file_name);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'הורדת הקובץ נכשלה'));
+    } finally {
+      setDownloadingVersionId(null);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -495,7 +509,7 @@ export default function DocumentDetailPage() {
                           <TableHead className="w-32">סוג</TableHead>
                           <TableHead className="w-64">שינוי</TableHead>
                           <TableHead className="w-40">הועלתה</TableHead>
-                          <TableHead className="w-24"></TableHead>
+                          <TableHead className="w-32"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -520,9 +534,22 @@ export default function DocumentDetailPage() {
                               {version.created_at ? formatDateTime(version.created_at) : '—'}
                             </TableCell>
                             <TableCell>
-                              {(version.is_current || version.id === document.current_version_id) && (
-                                <Badge variant="success">נוכחית</Badge>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`הורד ${version.file_name}`}
+                                  title="הורד קובץ"
+                                  loading={downloadingVersionId === version.id}
+                                  onClick={() => handleDownloadVersion(version)}
+                                  className="text-primary-600 hover:text-primary-700"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                                {(version.is_current || version.id === document.current_version_id) && (
+                                  <Badge variant="success">נוכחית</Badge>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -584,9 +611,7 @@ function UploadVersionModal({
   onUploaded: (message: string) => Promise<void>;
 }) {
   const [version, setVersion] = useState(nextVersion);
-  const [fileName, setFileName] = useState('');
-  const [fileSize, setFileSize] = useState('');
-  const [mimeType, setMimeType] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [changeSummary, setChangeSummary] = useState('');
   const [isCurrent, setIsCurrent] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -595,9 +620,7 @@ function UploadVersionModal({
   useEffect(() => {
     if (isOpen) {
       setVersion(nextVersion);
-      setFileName('');
-      setFileSize('');
-      setMimeType('');
+      setFile(null);
       setChangeSummary('');
       setIsCurrent(true);
       setError(null);
@@ -608,25 +631,18 @@ function UploadVersionModal({
     event.preventDefault();
     setError(null);
 
-    if (!version.trim() || !fileName.trim()) {
-      setError('יש למלא מספר גרסה ושם קובץ');
+    if (!version.trim() || !file) {
+      setError('יש למלא מספר גרסה ולבחור קובץ');
       return;
     }
 
     setLoading(true);
     try {
-      const payload: Record<string, unknown> = {
-        document_id: document.id,
+      await api.uploadDocumentVersion(document.id, file, {
         version: version.trim(),
-        file_name: fileName.trim(),
-        file_key: `documents/${document.code}/${version.trim()}/${fileName.trim()}`,
+        change_summary: changeSummary.trim() || undefined,
         is_current: isCurrent,
-      };
-      if (fileSize.trim()) payload.file_size = Number(fileSize);
-      if (mimeType.trim()) payload.mime_type = mimeType.trim();
-      if (changeSummary.trim()) payload.change_summary = changeSummary.trim();
-
-      await api.createDocumentVersion(document.id, payload);
+      });
       onClose();
       await onUploaded(`הגרסה ${version.trim()} הועלתה בהצלחה`);
     } catch (err) {
@@ -655,45 +671,26 @@ function UploadVersionModal({
             dir="ltr"
             required
           />
-          <Input
-            label="שם קובץ *"
-            name="file_name"
-            value={fileName}
-            onChange={(e) => setFileName(e.target.value)}
-            placeholder="procedure-qa-001.pdf"
-            dir="ltr"
-            required
-          />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="גודל קובץ (בתים)"
-            name="file_size"
-            type="number"
-            min={0}
-            value={fileSize}
-            onChange={(e) => setFileSize(e.target.value)}
-            placeholder="245760"
-            dir="ltr"
-          />
-          <Select
-            label="סוג קובץ"
-            name="mime_type"
-            value={mimeType}
-            onChange={(e) => setMimeType(e.target.value)}
-            options={[
-              { value: '', label: 'לא ידוע' },
-              { value: 'application/pdf', label: 'PDF' },
-              { value: 'application/msword', label: 'Word' },
-              {
-                value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                label: 'Word (docx)',
-              },
-              { value: 'application/vnd.ms-excel', label: 'Excel' },
-              { value: 'text/plain', label: 'טקסט' },
-            ]}
-          />
+        <div>
+          <label className="block text-sm font-medium text-secondary-700 mb-1.5">קובץ *</label>
+          <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-secondary-300 bg-secondary-50 px-4 py-6 cursor-pointer hover:border-primary-400 hover:bg-primary-50/40 transition-colors">
+            <Upload className="h-6 w-6 text-secondary-400" />
+            <span className="text-sm font-medium text-secondary-700 max-w-full truncate">
+              {file ? file.name : 'בחר קובץ להעלאה'}
+            </span>
+            <span className="text-xs text-secondary-500">
+              {file
+                ? `${formatFileSize(file.size)} · ${file.type || 'סוג לא ידוע'}`
+                : 'PDF, Word, Excel או תמונה — עד 15MB'}
+            </span>
+            <input
+              type="file"
+              className="sr-only"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
         </div>
 
         <Textarea

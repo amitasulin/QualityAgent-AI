@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "qualityagent"
     S3_REGION: str = "us-east-1"
 
+    # Uploads (stored in Postgres by default; move to S3 when configured)
+    MAX_UPLOAD_SIZE_MB: int = 15
+
     # AI (OpenAI)
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"

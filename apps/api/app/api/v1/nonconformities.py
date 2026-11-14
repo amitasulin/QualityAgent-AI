@@ -27,6 +27,7 @@ from app.schemas.nonconformity import (
 from app.schemas.base import PaginationParams
 from app.core.exceptions import NotFoundError, ValidationError as AppValidationError
 from app.core.sorting import apply_sorting
+from app.services.storage import delete_file, get_file, save_upload, stream_file
 
 router = APIRouter()
 
@@ -424,14 +425,20 @@ async def upload_ncr_attachment(
     if not ncr:
         raise NotFoundError("Nonconformity", str(ncr_id))
 
-    # In production, upload to S3 and save file_key
-    # For demo, we'll just create a record
+    stored = await save_upload(
+        db,
+        upload=file,
+        tenant_id=tenant.id,
+        prefix=f"ncr/{ncr_id}",
+        user_id=current_user.id,
+    )
+
     attachment = NCRAttachment(
         ncr_id=ncr_id,
-        file_key=f"uploads/{tenant.id}/{ncr_id}/{file.filename}",
-        file_name=file.filename,
-        file_size=file.size,
-        mime_type=file.content_type,
+        file_key=stored.key,
+        file_name=stored.file_name,
+        file_size=stored.size_bytes,
+        mime_type=stored.mime_type,
         description=description,
         uploaded_by_id=current_user.id,
     )
@@ -439,6 +446,35 @@ async def upload_ncr_attachment(
     await db.flush()
     await db.refresh(attachment)
     return attachment
+
+
+@router.get("/{ncr_id}/attachments/{attachment_id}/download")
+async def download_ncr_attachment(
+    ncr_id: UUID,
+    attachment_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant=Depends(get_current_tenant),
+):
+    """Download an NCR attachment from storage."""
+    result = await db.execute(
+        select(NCRAttachment)
+        .join(Nonconformity)
+        .where(
+            NCRAttachment.id == attachment_id,
+            NCRAttachment.ncr_id == ncr_id,
+            Nonconformity.tenant_id == tenant.id,
+        )
+    )
+    attachment = result.scalar_one_or_none()
+    if not attachment:
+        raise NotFoundError("Attachment", str(attachment_id))
+
+    file_object = await get_file(db, tenant_id=tenant.id, key=attachment.file_key)
+    if not file_object:
+        raise NotFoundError("File", attachment.file_name)
+
+    return stream_file(file_object)
 
 
 @router.delete("/{ncr_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -464,4 +500,5 @@ async def delete_ncr_attachment(
     if not attachment:
         raise NotFoundError("Attachment", str(attachment_id))
 
+    await delete_file(db, tenant_id=tenant.id, key=attachment.file_key)
     await db.delete(attachment)

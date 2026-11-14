@@ -211,6 +211,23 @@ CREATE TABLE ncr_attachments (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Stored file blobs (uploads survive redeploys on hosts without a disk)
+CREATE TABLE IF NOT EXISTS file_objects (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    key VARCHAR(500) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(150),
+    size_bytes BIGINT NOT NULL,
+    checksum VARCHAR(64),
+    content BYTEA NOT NULL,
+    uploaded_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_file_object_tenant_key UNIQUE (tenant_id, key)
+);
+
 -- Corrective Actions (CAPA)
 CREATE TABLE corrective_actions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

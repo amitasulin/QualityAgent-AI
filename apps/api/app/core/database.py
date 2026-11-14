@@ -90,6 +90,7 @@ async def init_db() -> None:
         customer,
         supplier,
         document,
+        file_object,
         nonconformity,
         corrective_action,
         agent,

@@ -104,6 +104,26 @@ class ApiClient {
     Cookies.remove('user');
   }
 
+  /**
+   * Fetch a protected file through the API and hand it to the browser.
+   * Downloads must go through the API because the auth cookie lives on the
+   * frontend origin and is not sent to the API domain.
+   */
+  private async downloadFile(path: string, fileName: string) {
+    const response = await this.client.get(path, { responseType: 'blob' });
+    const contentType =
+      (response.headers['content-type'] as string) || 'application/octet-stream';
+    const blob = new Blob([response.data], { type: contentType });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName || 'download';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   // Auth
   async login(email: string, password: string) {
     const response = await this.client.post('/auth/login', { email, password });
@@ -282,6 +302,26 @@ class ApiClient {
     return response.data;
   }
 
+  async uploadDocumentVersion(
+    id: string,
+    file: File,
+    data: { version: string; change_summary?: string; is_current?: boolean }
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('version', data.version);
+    if (data.change_summary) formData.append('change_summary', data.change_summary);
+    formData.append('is_current', String(data.is_current ?? true));
+    const response = await this.client.post(`/documents/${id}/versions/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async downloadDocumentVersion(id: string, versionId: string, fileName: string) {
+    await this.downloadFile(`/documents/${id}/versions/${versionId}/download`, fileName);
+  }
+
   // Nonconformities
   async getNonconformities(params?: Record<string, unknown>) {
     const response = await this.client.get('/nonconformities', { params });
@@ -331,6 +371,10 @@ class ApiClient {
   async deleteNcrAttachment(id: string, attachmentId: string) {
     const response = await this.client.delete(`/nonconformities/${id}/attachments/${attachmentId}`);
     return response.data;
+  }
+
+  async downloadNcrAttachment(id: string, attachmentId: string, fileName: string) {
+    await this.downloadFile(`/nonconformities/${id}/attachments/${attachmentId}/download`, fileName);
   }
 
   // Corrective Actions
