@@ -1,18 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FileQuestion, Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { api, FileNotStoredError } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { formatFileSize } from '@/lib/documents';
 
+const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+export function isDocxFile(mimeType?: string | null): boolean {
+  return mimeType === DOCX_MIME;
+}
+
 export function canPreviewFile(mimeType?: string | null): boolean {
   if (!mimeType) return false;
   return (
     mimeType.startsWith('image/') ||
     mimeType === 'application/pdf' ||
-    mimeType.startsWith('text/')
+    mimeType.startsWith('text/') ||
+    isDocxFile(mimeType)
   );
 }
 
@@ -26,9 +34,9 @@ interface FilePreviewModalProps {
 }
 
 /**
- * Shows a stored file inside the app (image, PDF or text). Rendering the blob
- * locally keeps authentication working even though the API lives on another
- * origin.
+ * Shows a stored file inside the app: images, PDFs, text and Word documents.
+ * Rendering the blob locally keeps authentication working even though the API
+ * lives on another origin.
  */
 export function FilePreviewModal({
   isOpen,
@@ -40,14 +48,18 @@ export function FilePreviewModal({
 }: FilePreviewModalProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
+  const [docx, setDocx] = useState<ArrayBuffer | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const docxContainer = useRef<HTMLDivElement>(null);
   const previewable = canPreviewFile(mimeType);
+  const isDocx = isDocxFile(mimeType);
 
   useEffect(() => {
     if (!isOpen || !path || !previewable) {
       setUrl(null);
       setText(null);
+      setDocx(null);
       setLoading(false);
       setError(null);
       return;
@@ -59,12 +71,15 @@ export function FilePreviewModal({
     setError(null);
     setUrl(null);
     setText(null);
+    setDocx(null);
 
     api
       .getFileBlob(path)
       .then(async (blob) => {
         if (cancelled) return;
-        if (mimeType?.startsWith('text/')) {
+        if (isDocx) {
+          setDocx(await blob.arrayBuffer());
+        } else if (mimeType?.startsWith('text/')) {
           setText(await blob.text());
         } else {
           objectUrl = window.URL.createObjectURL(
@@ -89,7 +104,37 @@ export function FilePreviewModal({
       cancelled = true;
       if (objectUrl) window.URL.revokeObjectURL(objectUrl);
     };
-  }, [isOpen, path, mimeType, previewable]);
+  }, [isOpen, path, mimeType, previewable, isDocx]);
+
+  // Word documents are rendered into the DOM once their bytes are available.
+  useEffect(() => {
+    if (!docx || loading || !docxContainer.current) return;
+    const container = docxContainer.current;
+    let cancelled = false;
+    container.innerHTML = '';
+
+    import('docx-preview')
+      .then(({ renderAsync }) =>
+        renderAsync(docx, container, undefined, {
+          inWrapper: false,
+          ignoreWidth: true,
+          ignoreHeight: true,
+          breakPages: false,
+          useBase64URL: true,
+        })
+      )
+      .then(() => {
+        if (cancelled) container.innerHTML = '';
+      })
+      .catch(() => {
+        if (!cancelled) setError('תצוגת המסמך נכשלה — אפשר להוריד אותו ולפתוח ב-Word');
+      });
+
+    return () => {
+      cancelled = true;
+      container.innerHTML = '';
+    };
+  }, [docx, loading]);
 
   const description = [mimeType, formatFileSize(fileSize)].filter((v) => v && v !== '—').join(' · ');
 
@@ -127,6 +172,8 @@ export function FilePreviewModal({
           >
             {text}
           </pre>
+        ) : docx ? (
+          <div ref={docxContainer} className="h-full w-full overflow-auto bg-white p-6" />
         ) : url && mimeType?.startsWith('image/') ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={url} alt={fileName} className="max-h-full max-w-full object-contain" />
