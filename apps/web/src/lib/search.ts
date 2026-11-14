@@ -59,3 +59,27 @@ export function searchStatusLabel(status?: string | null): string | null {
 export function totalSearchResults(data: SearchResponse | null): number {
   return data?.total ?? 0;
 }
+
+export const RECENT_SEARCHES_KEY = 'qa-recent-searches';
+export const MAX_RECENT_SEARCHES = 5;
+
+/** Parse the stored list defensively: bad JSON must never break the header. */
+export function parseRecentSearches(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .slice(0, MAX_RECENT_SEARCHES);
+  } catch {
+    return [];
+  }
+}
+
+/** Put the newest query first, drop duplicates and keep the list short. */
+export function addRecentSearch(list: string[], query: string): string[] {
+  const value = query.trim();
+  if (value.length < 2) return list;
+  return [value, ...list.filter((item) => item !== value)].slice(0, MAX_RECENT_SEARCHES);
+}

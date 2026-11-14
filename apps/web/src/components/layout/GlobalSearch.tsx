@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   FileText,
+  History,
   Loader2,
   MapPin,
   MessageSquareWarning,
@@ -21,7 +22,7 @@ import {
 import { api } from '@/lib/api';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { cn } from '@/lib/utils';
-import { searchStatusLabel, type SearchResponse } from '@/lib/search';
+import { searchStatusLabel, addRecentSearch, parseRecentSearches, RECENT_SEARCHES_KEY, type SearchResponse } from '@/lib/search';
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
   nonconformity: ClipboardList,
@@ -48,6 +49,7 @@ export function GlobalSearch() {
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
 
   const debounced = useDebouncedValue(query, 300);
   const term = query.trim();
@@ -57,7 +59,7 @@ export function GlobalSearch() {
     () => new Map(items.map((item, index) => [item.href, index])),
     [items]
   );
-  const isOpen = focused && canSearch;
+  const isOpen = focused && (canSearch || recent.length > 0);
 
   useEffect(() => {
     const value = debounced.trim();
@@ -105,13 +107,36 @@ export function GlobalSearch() {
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
 
+  useEffect(() => {
+    setRecent(parseRecentSearches(window.localStorage.getItem(RECENT_SEARCHES_KEY)));
+
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        if (window.innerWidth < 768) setMobileOpen(true);
+        setFocused(true);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
+
   const goTo = (href: string) => {
+    const saved = addRecentSearch(recent, query);
+    setRecent(saved);
+    window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(saved));
     setQuery('');
     setData(null);
     setActiveIndex(-1);
     setFocused(false);
     setMobileOpen(false);
     router.push(href);
+  };
+
+  const clearRecent = () => {
+    setRecent([]);
+    window.localStorage.removeItem(RECENT_SEARCHES_KEY);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -169,6 +194,7 @@ export function GlobalSearch() {
             onFocus={() => setFocused(true)}
             onKeyDown={handleKeyDown}
             placeholder="חיפוש בכל המערכת..."
+            title="חיפוש מהיר (Ctrl+K)"
             className="h-10 w-full rounded-lg border border-secondary-200 bg-white pr-10 pl-10 text-sm text-secondary-900 placeholder-secondary-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
           {loading ? (
@@ -197,7 +223,35 @@ export function GlobalSearch() {
             className="absolute top-full z-50 mt-2 w-full overflow-hidden rounded-xl border border-secondary-200 bg-white shadow-lg"
           >
             <div className="max-h-[60vh] overflow-y-auto py-1">
-              {error ? (
+              {!canSearch ? (
+                <>
+                  <div className="flex items-center justify-between px-3 pb-1 pt-2 text-xs font-medium text-secondary-400">
+                    <span>חיפושים אחרונים</span>
+                    <button
+                      type="button"
+                      onClick={clearRecent}
+                      className="text-primary-600 hover:text-primary-700"
+                    >
+                      נקה
+                    </button>
+                  </div>
+                  {recent.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setQuery(value);
+                        inputRef.current?.focus();
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-right text-sm text-secondary-700 transition-colors hover:bg-secondary-50"
+                    >
+                      <History className="h-4 w-4 shrink-0 text-secondary-400" />
+                      <span className="truncate">{value}</span>
+                    </button>
+                  ))}
+                </>
+              ) : error ? (
                 <div className="flex items-center gap-2 px-4 py-6 text-sm text-danger-600">
                   <AlertCircle className="h-4 w-4" />
                   {error}
