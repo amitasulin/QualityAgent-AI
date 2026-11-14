@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Upload,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -29,9 +30,14 @@ import {
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
-import { ConfirmDialog } from '@/components/ui/Modal';
+import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
-import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
+import {
+  EntityFormFields,
+  payloadFromValues,
+  type FormValue,
+  type FormValues,
+} from '@/components/master-data/EntityFormFields';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/master-data';
@@ -43,6 +49,7 @@ import {
   DOCUMENT_STATUS_LABELS,
   DOCUMENT_STATUS_OPTIONS,
   DOCUMENT_STATUS_VARIANTS,
+  formatFileSize,
   textToTags,
 } from '@/lib/documents';
 
@@ -120,15 +127,6 @@ export default function DocumentsPage() {
       sortBy: field,
       sortOrder: prev.sortBy === field && prev.sortOrder === 'asc' ? 'desc' : 'asc',
     }));
-  };
-
-  const handleCreate = async (payload: Record<string, unknown>) => {
-    if (typeof payload.tags === 'string') {
-      payload.tags = textToTags(payload.tags);
-    }
-    await api.createDocument(payload);
-    toast.success('המסמך נוצר בהצלחה');
-    await fetchDocuments();
   };
 
   const handleArchiveToggle = async () => {
@@ -423,16 +421,10 @@ export default function DocumentsPage() {
         </Card>
       </div>
 
-      <CreateEntityModal
+      <CreateDocumentModal
         isOpen={showCreate}
         onClose={() => setShowCreate(false)}
-        title="מסמך חדש"
-        description="הגדר קוד, כותרת וסטטוס — ניתן להוסיף גרסאות לאחר היצירה"
-        fields={DOCUMENT_FIELDS}
-        initialValues={DOCUMENT_INITIAL}
-        submitLabel="צור מסמך"
-        errorFallback="יצירת המסמך נכשלה"
-        onSubmit={handleCreate}
+        onCreated={fetchDocuments}
       />
 
       <ConfirmDialog
@@ -452,5 +444,125 @@ export default function DocumentsPage() {
         confirmText={confirmTarget?.status === 'archived' ? 'שחזר' : 'העבר לארכיון'}
       />
     </MainLayout>
+  );
+}
+
+function CreateDocumentModal({
+  isOpen,
+  onClose,
+  onCreated,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [values, setValues] = useState<FormValues>(DOCUMENT_INITIAL);
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setValues(DOCUMENT_INITIAL);
+      setFile(null);
+      setError(null);
+    }
+  }, [isOpen]);
+
+  const handleChange = (name: string, value: FormValue) => {
+    setValues((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const payload = payloadFromValues(values, DOCUMENT_FIELDS, 'create');
+      if (typeof payload.tags === 'string') {
+        payload.tags = textToTags(payload.tags);
+      }
+      const created = await api.createDocument(payload);
+
+      if (file) {
+        try {
+          await api.uploadDocumentVersion(created.id, file, {
+            version: '1.0',
+            change_summary: 'גרסה ראשונית',
+            is_current: true,
+          });
+          // Uploading a current version publishes the document; keep the status
+          // the user picked in the form.
+          if (payload.status && payload.status !== 'published') {
+            await api.updateDocument(created.id, { status: payload.status });
+          }
+        } catch (uploadError) {
+          console.error(uploadError);
+          toast.error('המסמך נוצר, אך העלאת הקובץ נכשלה — אפשר להעלות גרסה ממסך המסמך');
+          onClose();
+          await onCreated();
+          return;
+        }
+      }
+
+      toast.success(file ? 'המסמך נוצר והקובץ הועלה' : 'המסמך נוצר בהצלחה');
+      onClose();
+      await onCreated();
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'יצירת המסמך נכשלה'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="מסמך חדש"
+      description="מלא את פרטי המסמך, ואם יש קובץ — צרף אותו כאן"
+      size="lg"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <EntityFormFields fields={DOCUMENT_FIELDS} values={values} onChange={handleChange} />
+
+        <div>
+          <label className="block text-sm font-medium text-secondary-700 mb-1.5">
+            קובץ המסמך (אופציונלי)
+          </label>
+          <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-secondary-300 bg-secondary-50 px-4 py-5 cursor-pointer hover:border-primary-400 hover:bg-primary-50/40 transition-colors">
+            <Upload className="h-6 w-6 text-secondary-400" />
+            <span className="text-sm font-medium text-secondary-700 max-w-full truncate">
+              {file ? file.name : 'בחר קובץ להעלאה'}
+            </span>
+            <span className="text-xs text-secondary-500 text-center">
+              {file
+                ? `${formatFileSize(file.size)} · ${file.type || 'סוג לא ידוע'}`
+                : 'PDF, Word, Excel או תמונה — עד 15MB. הקובץ יישמר כגרסה 1.0'}
+            </span>
+            <input
+              type="file"
+              className="sr-only"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
+
+        {error && (
+          <p className="rounded-lg bg-danger-50 border border-danger-200 px-3 py-2 text-sm text-danger-700">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
+            ביטול
+          </Button>
+          <Button type="submit" loading={loading}>
+            {file ? 'צור מסמך והעלה קובץ' : 'צור מסמך'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
