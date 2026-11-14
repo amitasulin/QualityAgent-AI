@@ -117,19 +117,22 @@ class ApiClient {
    * Downloads must go through the API because the auth cookie lives on the
    * frontend origin and is not sent to the API domain.
    */
-  private async downloadFile(path: string, fileName: string) {
-    let response;
+  async getFileBlob(path: string): Promise<Blob> {
     try {
-      response = await this.client.get(path, { responseType: 'blob' });
+      const response = await this.client.get(path, { responseType: 'blob' });
+      return response.data as Blob;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         throw new FileNotStoredError();
       }
       throw error;
     }
-    const contentType =
-      (response.headers['content-type'] as string) || 'application/octet-stream';
-    const blob = new Blob([response.data], { type: contentType });
+  }
+
+  private async downloadFile(path: string, fileName: string) {
+    const response = await this.getFileBlob(path);
+    const contentType = response.type || 'application/octet-stream';
+    const blob = new Blob([response], { type: contentType });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

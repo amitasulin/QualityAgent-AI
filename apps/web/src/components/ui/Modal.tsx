@@ -13,6 +13,7 @@ interface ModalProps {
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   showCloseButton?: boolean;
+  bodyClassName?: string;
 }
 
 export function Modal({
@@ -23,6 +24,7 @@ export function Modal({
   children,
   size = 'md',
   showCloseButton = true,
+  bodyClassName,
 }: ModalProps) {
   if (!isOpen) return null;
 
@@ -80,7 +82,7 @@ export function Modal({
               )}
             </div>
           )}
-          <div className="p-6">{children}</div>
+          <div className={cn('p-6', bodyClassName)}>{children}</div>
         </div>
       </div>
     </Fragment>

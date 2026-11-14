@@ -10,6 +10,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Download,
+  Eye,
   FileText,
   FolderOpen,
   History,
@@ -26,6 +27,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
+import { FilePreviewModal } from '@/components/files/FilePreviewModal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
@@ -127,6 +129,7 @@ export default function DocumentDetailPage() {
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [versionSuccess, setVersionSuccess] = useState<string | null>(null);
   const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
+  const [previewVersion, setPreviewVersion] = useState<DocumentVersion | null>(null);
 
   const handleDownloadVersion = async (version: DocumentVersion) => {
     if (!document) return;
@@ -542,6 +545,16 @@ export default function DocumentDetailPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  aria-label={`צפה ב${version.file_name}`}
+                                  title="צפייה בקובץ"
+                                  onClick={() => setPreviewVersion(version)}
+                                  className="text-secondary-500 hover:text-secondary-700"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
                                   aria-label={`הורד ${version.file_name}`}
                                   title="הורד קובץ"
                                   loading={downloadingVersionId === version.id}
@@ -581,6 +594,19 @@ export default function DocumentDetailPage() {
           toast.success(message);
           await load();
         }}
+      />
+
+      <FilePreviewModal
+        isOpen={Boolean(previewVersion)}
+        onClose={() => setPreviewVersion(null)}
+        path={
+          previewVersion && document
+            ? `/documents/${document.id}/versions/${previewVersion.id}/download`
+            : null
+        }
+        fileName={previewVersion?.file_name ?? ''}
+        mimeType={previewVersion?.mime_type}
+        fileSize={previewVersion?.file_size}
       />
 
       <ConfirmDialog

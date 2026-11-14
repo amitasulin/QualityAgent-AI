@@ -10,6 +10,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Download,
+  Eye,
   FileText,
   Hash,
   Paperclip,
@@ -30,6 +31,7 @@ import { Badge, StatusBadge, SeverityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
+import { FilePreviewModal } from '@/components/files/FilePreviewModal';
 import { toast } from '@/components/ui/Toast';
 import { api, FileNotStoredError } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/master-data';
@@ -313,6 +315,7 @@ export default function NCRDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<NCRAttachment | null>(null);
   const [attachmentToDelete, setAttachmentToDelete] = useState<NCRAttachment | null>(null);
 
   const loadNcr = useCallback(async () => {
@@ -698,6 +701,16 @@ export default function NCRDetailPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                aria-label={`צפה ב${a.file_name}`}
+                                title="צפייה בקובץ"
+                                onClick={() => setPreviewAttachment(a)}
+                                className="text-secondary-500 hover:text-secondary-700"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 aria-label={`הורד ${a.file_name}`}
                                 title="הורד קובץ"
                                 loading={downloadingId === a.id}
@@ -948,6 +961,19 @@ export default function NCRDetailPage() {
           </div>
         </form>
       </Modal>
+
+      <FilePreviewModal
+        isOpen={Boolean(previewAttachment)}
+        onClose={() => setPreviewAttachment(null)}
+        path={
+          previewAttachment && ncr
+            ? `/nonconformities/${ncr.id}/attachments/${previewAttachment.id}/download`
+            : null
+        }
+        fileName={previewAttachment?.file_name ?? ''}
+        mimeType={previewAttachment?.mime_type}
+        fileSize={previewAttachment?.file_size}
+      />
 
       <ConfirmDialog
         isOpen={Boolean(attachmentToDelete)}
