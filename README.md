@@ -233,29 +233,27 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ## 🗺 Roadmap
 
-### Phase 2 - ניהול NCR מלא
-- [ ] טופס NCR מתקדם עם שדות דינמיים
-- [ ] תבניות חריגות
-- [ ] דוחות 8D אוטומטיים
-- [ ] ייצוא PDF/Excel
+### הושלם
+- [x] בדיקות אוטומטיות (Vitest + pytest) ו-CI ב-GitHub Actions
+- [x] מסכי ניהול משתמשים, תפקידים ואתרים
+- [x] לוח בקרה, דארק מוד, NCR/CAPA/תלונות/בדיקות/משימות/מסמכים
 
-### Phase 3 - סוכן AI מתקדם
+### הבא בתור
+- [ ] אחסון קבצים אמיתי (S3/R2) להעלאות NCR ומסמכים
+- [ ] התראות מתמשכות ושליחת אימייל
+- [ ] ייצוא PDF/Excel ודוח 8D
+- [ ] חיפוש גלובלי ושמירת פילטרים
+
+### AI
 - [ ] RAG על מסמכי הארגון
 - [ ] ניתוח סיבות שורש (5 Whys מודרך)
 - [ ] הצעת פעולות מתקנות מבוססת היסטוריה
 - [ ] אינטגרציה עם OpenAI/GPT-4
 
-### Phase 4 - מודולים נוספים
-- [ ] בדיקות איכות (קבלה, תהליך, סופית)
-- [ ] תלונות לקוח (8D)
-- [ ] מבדקים פנימיים/חיצוניים
-- [ ] ניהול ספקים מתקדם
-
-### Phase 5 - פרודקשן
-- [ ] CI/CD Pipeline
+### פרודקשן
 - [ ] Monitoring & Logging (Prometheus, Grafana, ELK)
 - [ ] Backup & Disaster Recovery
-- [ ] Security Hardening
+- [ ] Rate limiting ו-Security Hardening
 - [ ] Load Testing
 
 ## 🤝 תרומה
