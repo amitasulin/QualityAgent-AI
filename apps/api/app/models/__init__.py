@@ -18,6 +18,7 @@ from app.models import (
     audit,
     inspection,
     complaint,
+    attachment,
 )
 
 __all__ = [

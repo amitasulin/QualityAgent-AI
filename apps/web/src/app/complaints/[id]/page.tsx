@@ -22,6 +22,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { AttachmentsCard } from '@/components/attachments/AttachmentsCard';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, SeverityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -506,6 +507,7 @@ export default function ComplaintDetailPage() {
                 </Card>
               </div>
             </div>
+            <AttachmentsCard entityType="complaint" entityId={complaint.id} />
           </>
         )}
       </div>

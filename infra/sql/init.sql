@@ -228,6 +228,24 @@ CREATE TABLE IF NOT EXISTS file_objects (
     CONSTRAINT uq_file_object_tenant_key UNIQUE (tenant_id, key)
 );
 
+-- Generic attachments (complaints, inspections, corrective actions, tasks)
+CREATE TABLE IF NOT EXISTS attachments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id UUID NOT NULL,
+    file_key VARCHAR(500) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT,
+    mime_type VARCHAR(150),
+    uploaded_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_attachments_entity
+    ON attachments (tenant_id, entity_type, entity_id);
+
 -- Corrective Actions (CAPA)
 CREATE TABLE corrective_actions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -403,6 +421,7 @@ ALTER TABLE agent_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attachments ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies (simplified - in production use session variables)
 -- For development, we'll use a simple policy that allows all access
@@ -425,6 +444,7 @@ CREATE POLICY agent_runs_isolation ON agent_runs USING (true);
 CREATE POLICY agent_recs_isolation ON agent_recommendations USING (true);
 CREATE POLICY audit_isolation ON audit_events USING (true);
 CREATE POLICY tasks_isolation ON tasks USING (true);
+CREATE POLICY attachments_isolation ON attachments USING (true);
 
 -- Insert demo organization
 INSERT INTO organizations (id, name, industry, timezone, status) VALUES

@@ -13,6 +13,7 @@ import {
   Link2,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { AttachmentsCard } from '@/components/attachments/AttachmentsCard';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -282,6 +283,7 @@ export default function TaskDetailPage() {
                 </CardBody>
               </Card>
             </div>
+            <AttachmentsCard entityType="task" entityId={task.id} />
           </>
         )}
       </div>

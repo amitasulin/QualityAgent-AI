@@ -96,6 +96,7 @@ async def init_db() -> None:
         agent,
         task,
         audit,
+        attachment,
     )
 
     async with engine.begin() as conn:

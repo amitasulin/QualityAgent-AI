@@ -602,6 +602,33 @@ class ApiClient {
     const response = await this.client.get('/search', { params: { q: query, limit } });
     return response.data;
   }
+
+  // Attachments (complaints, inspections, CAPA, tasks)
+  async getAttachments(entityType: string, entityId: string) {
+    const response = await this.client.get('/attachments', {
+      params: { entity_type: entityType, entity_id: entityId },
+    });
+    return response.data;
+  }
+
+  async uploadAttachment(entityType: string, entityId: string, file: File) {
+    const form = new FormData();
+    form.append('entity_type', entityType);
+    form.append('entity_id', entityId);
+    form.append('file', file);
+    const response = await this.client.post('/attachments', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async downloadAttachment(attachmentId: string, fileName: string) {
+    await this.downloadFile(`/attachments/${attachmentId}/download`, fileName);
+  }
+
+  async deleteAttachment(attachmentId: string) {
+    await this.client.delete(`/attachments/${attachmentId}`);
+  }
 }
 
 export const api = new ApiClient();

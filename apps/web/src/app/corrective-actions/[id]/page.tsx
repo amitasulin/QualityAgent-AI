@@ -17,6 +17,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { AttachmentsCard } from '@/components/attachments/AttachmentsCard';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -596,6 +597,7 @@ export default function CAPADetailPage() {
                 )}
               </div>
             </div>
+            <AttachmentsCard entityType="corrective_action" entityId={capa.id} />
           </>
         )}
       </div>
