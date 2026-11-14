@@ -126,6 +126,13 @@ quality-agent/
 - ✅ מוצרים, לקוחות, ספקים
 - ✅ מסמכים וגרסאות
 
+### קבצים ואחסון
+- ✅ העלאת נספחים ל-NCR ושמירתם בפועל
+- ✅ העלאת גרסאות מסמך מקובץ אמיתי
+- ✅ הורדת קבצים מאובטחת דרך ה-API
+- ✅ שמירה ב-Postgres (שורדת דיפלוי גם בלי דיסק קבוע)
+- ✅ הגבלת גודל קובץ ל-15MB
+
 ## 🔐 אבטחה והרשאות
 
 ### תפקידים (Roles)
@@ -153,6 +160,7 @@ quality-agent/
 - `documents` / `document_versions` - נהלים ומסמכים
 - `nonconformities` - אי התאמות (NCR)
 - `ncr_attachments` - קבצים מצורפים
+- `file_objects` - תוכן הקבצים עצמם (BYTEA), משותף לנספחים ולגרסאות מסמך
 - `corrective_actions` - פעולות מתקנות (CAPA)
 - `effectiveness_checks` - בדיקות אפקטיביות
 - `agent_runs` / `agent_recommendations` - הרצות והמלצות סוכן
@@ -197,6 +205,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 FRONTEND_URL=http://localhost:3000
 ENVIRONMENT=development
 OPENAI_API_KEY=your-openai-key
+MAX_UPLOAD_SIZE_MB=15
 ```
 
 ### Frontend (`.env.local`)
@@ -239,7 +248,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 - [x] לוח בקרה, דארק מוד, NCR/CAPA/תלונות/בדיקות/משימות/מסמכים
 
 ### הבא בתור
-- [ ] אחסון קבצים אמיתי (S3/R2) להעלאות NCR ומסמכים
+- [ ] העברת אחסון הקבצים ל-S3/R2 (השכבה מוכנה להחלפה בלי שינוי בקוראים)
 - [ ] התראות מתמשכות ושליחת אימייל
 - [ ] ייצוא PDF/Excel ודוח 8D
 - [ ] חיפוש גלובלי ושמירת פילטרים
