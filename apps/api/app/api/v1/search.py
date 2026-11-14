@@ -80,7 +80,7 @@ async def _search_group(
 @router.get("", response_model=SearchResponse)
 async def global_search(
     q: str = Query(..., min_length=1, max_length=100, description="Free text query"),
-    limit: int = Query(MAX_RESULTS, ge=1, le=MAX_RESULTS, description="Maximum results"),
+    limit: int = Query(MAX_RESULTS, ge=1, le=MAX_RESULTS, description="Maximum results per module"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     tenant=Depends(get_current_tenant),
