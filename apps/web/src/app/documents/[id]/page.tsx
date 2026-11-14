@@ -37,7 +37,7 @@ import {
   type FormValue,
   type FormValues,
 } from '@/components/master-data/EntityFormFields';
-import { api } from '@/lib/api';
+import { api, FileNotStoredError } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { usePermissions } from '@/lib/permissions';
 import { toast } from '@/components/ui/Toast';
@@ -134,7 +134,11 @@ export default function DocumentDetailPage() {
     try {
       await api.downloadDocumentVersion(document.id, version.id, version.file_name);
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'הורדת הקובץ נכשלה'));
+      toast.error(
+        err instanceof FileNotStoredError
+          ? err.message
+          : getApiErrorMessage(err, 'הורדת הקובץ נכשלה')
+      );
     } finally {
       setDownloadingVersionId(null);
     }

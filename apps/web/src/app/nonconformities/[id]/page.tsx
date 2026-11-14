@@ -31,7 +31,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
-import { api } from '@/lib/api';
+import { api, FileNotStoredError } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { hasAnyRole, INSPECTOR_ROLES, usePermissions } from '@/lib/permissions';
 import { formatDateTime } from '@/lib/utils';
@@ -446,7 +446,11 @@ export default function NCRDetailPage() {
     try {
       await api.downloadNcrAttachment(ncr.id, attachment.id, attachment.file_name);
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'הורדת הקובץ נכשלה'));
+      toast.error(
+        err instanceof FileNotStoredError
+          ? err.message
+          : getApiErrorMessage(err, 'הורדת הקובץ נכשלה')
+      );
     } finally {
       setDownloadingId(null);
     }

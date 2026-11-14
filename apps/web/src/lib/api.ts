@@ -3,6 +3,14 @@ import Cookies from 'js-cookie';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+/** Raised when a file row exists but its bytes were never stored (legacy data). */
+export class FileNotStoredError extends Error {
+  constructor() {
+    super('הקובץ לא נמצא באחסון. ייתכן שהוא הועלה לפני ששמירת הקבצים הופעלה.');
+    this.name = 'FileNotStoredError';
+  }
+}
+
 // On HTTPS deployments (Vercel) mark the auth cookies Secure; keep them
 // usable over plain HTTP for local development.
 const authCookieOptions = () => ({
@@ -110,7 +118,15 @@ class ApiClient {
    * frontend origin and is not sent to the API domain.
    */
   private async downloadFile(path: string, fileName: string) {
-    const response = await this.client.get(path, { responseType: 'blob' });
+    let response;
+    try {
+      response = await this.client.get(path, { responseType: 'blob' });
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        throw new FileNotStoredError();
+      }
+      throw error;
+    }
     const contentType =
       (response.headers['content-type'] as string) || 'application/octet-stream';
     const blob = new Blob([response.data], { type: contentType });
