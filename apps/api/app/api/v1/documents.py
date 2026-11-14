@@ -321,7 +321,7 @@ async def download_document_version(
 
     result = await db.execute(
         select(DocumentVersion)
-        .join(Document)
+        .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             DocumentVersion.id == version_id,
             DocumentVersion.document_id == document_id,
