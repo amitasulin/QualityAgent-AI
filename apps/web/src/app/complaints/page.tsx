@@ -35,6 +35,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/Toast';
 import { ExportButton } from '@/components/export/ExportButton';
+import { PrintButton } from '@/components/export/PrintButton';
 import { api } from '@/lib/api';
 import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { getApiErrorMessage } from '@/lib/master-data';
@@ -395,6 +396,12 @@ export default function ComplaintsPage() {
                   <Filter className="h-4 w-4" />
                   איפוס
                 </Button>
+                <PrintButton
+                  title="דוח תלונות לקוח"
+                  columns={complaintExportColumns}
+                  fetchRows={fetchAllComplaints}
+                  disabled={loading || pagination.total === 0}
+                />
                 <ExportButton
                   columns={complaintExportColumns}
                   fetchRows={fetchAllComplaints}

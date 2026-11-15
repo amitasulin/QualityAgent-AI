@@ -39,6 +39,7 @@ import {
   type FormValues,
 } from '@/components/master-data/EntityFormFields';
 import { ExportButton } from '@/components/export/ExportButton';
+import { PrintButton } from '@/components/export/PrintButton';
 import { api } from '@/lib/api';
 import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { formatDate } from '@/lib/utils';
@@ -226,6 +227,12 @@ export default function DocumentsPage() {
                 }}
                 options={[{ value: '', label: 'כל הסטטוסים' }, ...DOCUMENT_STATUS_OPTIONS]}
                 className="w-48"
+              />
+              <PrintButton
+                title="דוח מסמכים"
+                columns={documentExportColumns}
+                fetchRows={fetchAllDocuments}
+                disabled={loading || total === 0}
               />
               <ExportButton
                 columns={documentExportColumns}

@@ -39,6 +39,7 @@ import { toast } from '@/components/ui/Toast';
 import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import type { FieldDef, FormValues } from '@/components/master-data/EntityFormFields';
 import { ExportButton } from '@/components/export/ExportButton';
+import { PrintButton } from '@/components/export/PrintButton';
 import { api } from '@/lib/api';
 import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { getApiErrorMessage } from '@/lib/master-data';
@@ -518,6 +519,12 @@ export default function TasksPage() {
                   <Filter className="h-4 w-4" />
                   איפוס
                 </Button>
+                <PrintButton
+                  title="דוח משימות"
+                  columns={buildTaskExportColumns(users)}
+                  fetchRows={fetchAllTasks}
+                  disabled={loading || pagination.total === 0}
+                />
                 <ExportButton
                   columns={buildTaskExportColumns(users)}
                   fetchRows={fetchAllTasks}
