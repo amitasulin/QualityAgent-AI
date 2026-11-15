@@ -19,6 +19,7 @@ import {
   Settings,
   Building2,
   UserCog,
+  History,
   ChevronLeft,
   ChevronRight,
   HelpCircle,
@@ -44,6 +45,7 @@ const navigation: Array<{
   { name: 'אתרים', href: '/sites', icon: Building2 },
   { name: 'מסמכים', href: '/documents', icon: FolderOpen },
   { name: 'משתמשים', href: '/users', icon: UserCog, managerOnly: true },
+  { name: 'יומן פעולות', href: '/audit-log', icon: History, managerOnly: true },
   { name: 'סוכן AI', href: '/agent', icon: Bot },
   { name: 'הגדרות', href: '/settings', icon: Settings },
 ];

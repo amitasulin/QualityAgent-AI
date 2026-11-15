@@ -629,6 +629,12 @@ class ApiClient {
   async deleteAttachment(attachmentId: string) {
     await this.client.delete(`/attachments/${attachmentId}`);
   }
+
+  // Audit trail (managers only)
+  async getAuditEvents(params?: Record<string, unknown>) {
+    const response = await this.client.get('/audit-events', { params });
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

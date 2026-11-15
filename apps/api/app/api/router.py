@@ -19,6 +19,7 @@ from app.api.v1 import (
     auth,
     search,
     attachments,
+    audit,
 )
 
 api_router = APIRouter()
@@ -40,3 +41,4 @@ api_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(attachments.router, prefix="/attachments", tags=["Attachments"])
+api_router.include_router(audit.router, prefix="/audit-events", tags=["Audit Trail"])
