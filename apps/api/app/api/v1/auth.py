@@ -1,11 +1,16 @@
 """Authentication routes"""
+import logging
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit import write_audit_event
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.exceptions import RateLimitError
+from app.core.login_guard import client_ip, login_guard, login_keys
 from app.core.security import (
     verify_password,
     get_password_hash,
@@ -25,23 +30,66 @@ from app.schemas.auth import (
 from app.schemas.user import UserResponse
 
 router = APIRouter()
+logger = logging.getLogger("qualityagent.auth")
+
+
+def _invalid_credentials() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def _audit_failed_login(
+    user: User,
+    email: str,
+    request: Request,
+    reason: str,
+) -> None:
+    """Record a failed sign-in attempt in the audit trail (best effort)."""
+    try:
+        await write_audit_event(
+            tenant_id=user.tenant_id,
+            user_id=None,
+            action="login_failed",
+            entity_type="user",
+            entity_id=user.id,
+            method="POST",
+            path="/api/v1/auth/login",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            ip_address=client_ip(request),
+            user_agent=(request.headers.get("user-agent") or "")[:1000] or None,
+            actor_type="anonymous",
+            details={"email": email.strip().lower(), "reason": reason},
+        )
+    except Exception:
+        logger.exception("Failed to audit a failed login attempt")
 
 
 @router.post("/login", response_model=Token)
 async def login(
     credentials: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Login with email and password"""
+    keys = login_keys(request, credentials.email)
+    retry_after = login_guard.check(keys)
+    if retry_after:
+        raise RateLimitError(retry_after)
+
     result = await db.execute(select(User).where(User.email == credentials.email))
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        login_guard.record_failure(keys)
+        raise _invalid_credentials()
+
+    if not user.is_active:
+        login_guard.record_failure(keys)
+        await _audit_failed_login(user, credentials.email, request, "inactive")
+        raise _invalid_credentials()
 
     # Demo mode: seeded demo users authenticate with the documented demo password
     is_demo_user = user.identity_id.startswith("demo-")
@@ -52,11 +100,11 @@ async def login(
         password_ok = True
 
     if not password_ok:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        login_guard.record_failure(keys)
+        await _audit_failed_login(user, credentials.email, request, "bad_password")
+        raise _invalid_credentials()
+
+    login_guard.reset(keys)
 
     access_token = create_access_token(
         data={"sub": str(user.id), "tenant_id": str(user.tenant_id), "role": user.role.value}

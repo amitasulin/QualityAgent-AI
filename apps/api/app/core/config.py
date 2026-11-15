@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Login throttling: after this many failures within the window, the source
+    # IP and the targeted email are locked for the lockout period.
+    LOGIN_MAX_ATTEMPTS: int = 5
+    LOGIN_WINDOW_MINUTES: int = 15
+    LOGIN_LOCKOUT_MINUTES: int = 15
+
     # CORS
     # Accepts either a comma separated list or a JSON array:
     #   https://app.vercel.app,https://app-git-main.vercel.app

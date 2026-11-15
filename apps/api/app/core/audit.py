@@ -145,7 +145,7 @@ def _auth_context(
     return user_id, tenant_id
 
 
-async def _write_event(
+async def write_audit_event(
     *,
     tenant_id: uuid.UUID,
     user_id: Optional[uuid.UUID],
@@ -155,10 +155,13 @@ async def _write_event(
     method: str,
     path: str,
     status_code: int,
-    ip_address: Optional[str],
-    user_agent: Optional[str],
-    correlation_id: Optional[uuid.UUID],
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    correlation_id: Optional[uuid.UUID] = None,
+    actor_type: Optional[str] = None,
+    details: Optional[dict] = None,
 ) -> None:
+    """Persist one audit row. Callers treat failures as non-fatal."""
     async with AsyncSessionLocal() as session:
         try:
             session.add(
@@ -166,7 +169,7 @@ async def _write_event(
                     tenant_id=tenant_id,
                     organization_id=tenant_id,
                     actor_id=user_id,
-                    actor_type="user" if user_id else "system",
+                    actor_type=actor_type or ("user" if user_id else "system"),
                     action=action,
                     entity_type=entity_type,
                     entity_id=entity_id,
@@ -174,6 +177,7 @@ async def _write_event(
                         "method": method,
                         "path": path,
                         "status": status_code,
+                        **(details or {}),
                     },
                     ip_address=ip_address,
                     user_agent=user_agent,
@@ -261,7 +265,7 @@ class AuditMiddleware:
 
         client = scope.get("client")
         try:
-            await _write_event(
+            await write_audit_event(
                 tenant_id=tenant_id,
                 user_id=user_id,
                 action=action,

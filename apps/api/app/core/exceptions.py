@@ -17,11 +17,13 @@ class AppException(Exception):
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         code: str = "INTERNAL_ERROR",
         details: dict = None,
+        headers: dict = None,
     ):
         self.message = message
         self.status_code = status_code
         self.code = code
         self.details = details or {}
+        self.headers = headers
         super().__init__(message)
 
 
@@ -63,6 +65,20 @@ class AuthenticationError(AppException):
         )
 
 
+class RateLimitError(AppException):
+    """Too many attempts; the caller should retry after the given delay."""
+
+    def __init__(self, retry_after_seconds: int):
+        minutes = max(1, -(-retry_after_seconds // 60))
+        super().__init__(
+            message=f"יותר מדי ניסיונות התחברות. נסה שוב בעוד {minutes} דקות.",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="RATE_LIMITED",
+            details={"retry_after_seconds": retry_after_seconds},
+            headers={"Retry-After": str(retry_after_seconds)},
+        )
+
+
 class ConflictError(AppException):
     def __init__(self, message: str, details: dict = None):
         super().__init__(
@@ -85,6 +101,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "details": exc.details,
                 }
             },
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)

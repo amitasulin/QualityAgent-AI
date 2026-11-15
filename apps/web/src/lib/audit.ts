@@ -57,6 +57,7 @@ export const ACTION_LABELS: Record<string, string> = {
   change_password: 'שינוי סיסמה',
   assign: 'הקצאה',
   create_recommendation: 'יצירת המלצה',
+  login_failed: 'ניסיון התחברות כושל',
 };
 
 export const ACTION_TONES: Record<
@@ -85,6 +86,7 @@ export const ACTION_TONES: Record<
   change_password: 'warning',
   assign: 'primary',
   create_recommendation: 'primary',
+  login_failed: 'danger',
 };
 
 export const ENTITY_OPTIONS = Object.entries(ENTITY_LABELS).map(([value, label]) => ({
