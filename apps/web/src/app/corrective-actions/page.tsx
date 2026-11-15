@@ -33,9 +33,12 @@ import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/Toast';
+import { ExportButton } from '@/components/export/ExportButton';
 import { api } from '@/lib/api';
+import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { usePermissions } from '@/lib/permissions';
+import { SEARCH_STATUS_LABELS } from '@/lib/search';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -86,6 +89,26 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   corrective_action: 'פעולה מתקנת',
   preventive_action: 'פעולה מונעת',
 };
+
+const EFFECTIVENESS_LABELS: Record<string, string> = {
+  true: 'אפקטיבית',
+  false: 'לא אפקטיבית',
+};
+
+const capaExportColumns: ExportColumn<CAPA>[] = [
+  { header: 'כותרת', value: (capa) => capa.title },
+  { header: 'תיאור', value: (capa) => capa.description },
+  { header: 'סוג פעולה', value: (capa) => ACTION_TYPE_LABELS[capa.action_type] ?? capa.action_type },
+  { header: 'סטטוס', value: (capa) => SEARCH_STATUS_LABELS[capa.status] ?? capa.status },
+  { header: 'תאריך יעד', value: (capa) => formatExportDate(capa.due_date) },
+  {
+    header: 'אפקטיביות',
+    value: (capa) =>
+      capa.effectiveness_result === null || capa.effectiveness_result === undefined
+        ? ''
+        : EFFECTIVENESS_LABELS[String(capa.effectiveness_result)],
+  },
+];
 
 export default function CorrectiveActionsPage() {
   const { isManager } = usePermissions();
@@ -157,6 +180,22 @@ export default function CorrectiveActionsPage() {
     sortBy,
     sortOrder,
   ]);
+
+  const fetchAllCapas = useCallback(
+    () =>
+      collectAllPages<CAPA>((page, pageSize) =>
+        api.getCorrectiveActions({
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          ...(filters.overdue ? { overdue: 'true' } : {}),
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          page,
+          page_size: pageSize,
+        })
+      ),
+    [filters.status, filters.overdue, debouncedSearch, sortBy, sortOrder]
+  );
 
   const fetchStats = useCallback(async () => {
     try {
@@ -326,6 +365,12 @@ export default function CorrectiveActionsPage() {
                   <Filter className="h-4 w-4" />
                   איפוס
                 </Button>
+                <ExportButton
+                  columns={capaExportColumns}
+                  fetchRows={fetchAllCapas}
+                  filename="corrective-actions"
+                  disabled={loading || pagination.total === 0}
+                />
               </div>
             </div>
           </CardBody>

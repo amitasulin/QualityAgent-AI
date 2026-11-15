@@ -32,7 +32,10 @@ import {
 } from '@/components/ui/Table';
 import { Pagination } from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/Toast';
+import { ExportButton } from '@/components/export/ExportButton';
 import { api } from '@/lib/api';
+import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
+import { SEARCH_STATUS_LABELS } from '@/lib/search';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { cn, formatDate } from '@/lib/utils';
 
@@ -59,6 +62,22 @@ const FREQUENCY_LABELS: Record<string, string> = {
   weekly: 'שבועי',
   monthly: 'חודשי',
 };
+
+const inspectionExportColumns: ExportColumn<Inspection>[] = [
+  { header: 'מספר', value: (item) => item.number },
+  { header: 'סוג בדיקה', value: (item) => TYPE_LABELS[item.inspection_type] ?? item.inspection_type },
+  { header: 'סטטוס', value: (item) => SEARCH_STATUS_LABELS[item.status] ?? item.status },
+  { header: 'מוצר', value: (item) => (item.product ? `${item.product.sku} · ${item.product.name}` : '') },
+  { header: 'אתר', value: (item) => item.site?.name ?? '' },
+  { header: 'אצווה', value: (item) => item.lot_number ?? '' },
+  { header: 'תוכנית בדיקה', value: (item) => (item.plan ? `${item.plan.code} · ${item.plan.name}` : '') },
+  { header: 'מבצע הבדיקה', value: (item) => item.inspector?.full_name ?? '' },
+  { header: 'גודל מדגם', value: (item) => item.sample_size },
+  { header: 'עברו', value: (item) => item.passed_count },
+  { header: 'נכשלו', value: (item) => item.failed_count },
+  { header: 'אחוז עמידה', value: (item) => (item.pass_rate === null || item.pass_rate === undefined ? '' : `${item.pass_rate}%`) },
+  { header: 'תאריך בדיקה', value: (item) => formatExportDate(item.inspected_at ?? item.created_at) },
+];
 
 interface Inspection {
   id: string;
@@ -259,6 +278,22 @@ export default function InspectionsPage() {
       setLoading(false);
     }
   }, [page, pageSize, filters.status, filters.inspection_type, debouncedSearch, sortBy, sortOrder]);
+
+  const fetchAllInspections = useCallback(
+    () =>
+      collectAllPages<Inspection>((pageNumber, pageSizeNumber) =>
+        api.getInspections({
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(filters.inspection_type ? { inspection_type: filters.inspection_type } : {}),
+          page: pageNumber,
+          page_size: pageSizeNumber,
+        })
+      ),
+    [filters.status, filters.inspection_type, debouncedSearch, sortBy, sortOrder]
+  );
 
   const fetchStats = useCallback(async () => {
     try {
@@ -493,6 +528,12 @@ export default function InspectionsPage() {
                       <RefreshCw className="h-4 w-4" />
                       איפוס
                     </Button>
+                    <ExportButton
+                      columns={inspectionExportColumns}
+                      fetchRows={fetchAllInspections}
+                      filename="inspections"
+                      disabled={loading || pagination.total === 0}
+                    />
                   </div>
                 </div>
               </CardBody>

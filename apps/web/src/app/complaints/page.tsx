@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   ChevronLeft,
   Clock3,
-  Download,
   Filter,
   Flame,
   MessageSquareWarning,
@@ -35,9 +34,12 @@ import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/Toast';
+import { ExportButton } from '@/components/export/ExportButton';
 import { api } from '@/lib/api';
+import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { SEARCH_STATUS_LABELS } from '@/lib/search';
 import { formatRelativeTime, formatDate, cn } from '@/lib/utils';
 
 interface Complaint {
@@ -104,6 +106,29 @@ const severityOptions = [
   { value: 'major', label: 'חמור' },
   { value: 'minor', label: 'קל' },
   { value: 'observation', label: 'הערה' },
+];
+
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: 'קריטי',
+  major: 'חמור',
+  minor: 'קל',
+  observation: 'הערה',
+};
+
+const complaintExportColumns: ExportColumn<Complaint>[] = [
+  { header: 'מספר', value: (item) => item.number },
+  { header: 'כותרת', value: (item) => item.title },
+  { header: 'לקוח', value: (item) => item.customer?.name ?? '' },
+  { header: 'מוצר', value: (item) => (item.product ? `${item.product.sku} · ${item.product.name}` : '') },
+  { header: 'סטטוס', value: (item) => SEARCH_STATUS_LABELS[item.status] ?? item.status },
+  { header: 'חומרה', value: (item) => SEVERITY_LABELS[item.severity] ?? item.severity },
+  { header: 'אצווה', value: (item) => item.lot_number ?? '' },
+  { header: 'אסמכתת לקוח', value: (item) => item.customer_reference ?? '' },
+  { header: 'אחראי טיפול', value: (item) => item.assigned_to?.full_name ?? '' },
+  { header: 'התקבלה', value: (item) => formatExportDate(item.received_at) },
+  { header: 'יעד', value: (item) => formatExportDate(item.due_date) },
+  { header: 'נפתרה', value: (item) => formatExportDate(item.resolved_at) },
+  { header: 'שביעות רצון', value: (item) => item.satisfaction_rating ?? '' },
 ];
 
 function daysUntil(date: string) {
@@ -257,29 +282,22 @@ export default function ComplaintsPage() {
     }
   };
 
-  const handleExport = () => {
-    const header = ['מספר', 'כותרת', 'לקוח', 'סטטוס', 'חומרה', 'אצווה', 'התקבלה', 'יעד'];
-    const rows = complaints.map((c) => [
-      c.number,
-      c.title,
-      c.customer?.name || '',
-      c.status,
-      c.severity,
-      c.lot_number || '',
-      c.received_at,
-      c.due_date || '',
-    ]);
-    const csv = [header, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\r\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'complaints.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const fetchAllComplaints = useCallback(
+    () =>
+      collectAllPages<Complaint>((page, pageSize) =>
+        api.getComplaints({
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(filters.severity ? { severity: filters.severity } : {}),
+          ...(filters.overdue ? { overdue: filters.overdue } : {}),
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          page,
+          page_size: pageSize,
+        })
+      ),
+    [filters.status, filters.severity, filters.overdue, debouncedSearch, sortBy, sortOrder]
+  );
 
   const hasActiveFilters = Boolean(filters.search || filters.status || filters.severity || filters.overdue);
 
@@ -377,10 +395,12 @@ export default function ComplaintsPage() {
                   <Filter className="h-4 w-4" />
                   איפוס
                 </Button>
-                <Button variant="secondary" onClick={handleExport} disabled={loading || complaints.length === 0}>
-                  <Download className="h-4 w-4" />
-                  ייצוא
-                </Button>
+                <ExportButton
+                  columns={complaintExportColumns}
+                  fetchRows={fetchAllComplaints}
+                  filename="complaints"
+                  disabled={loading || pagination.total === 0}
+                />
               </div>
             </div>
           </CardBody>

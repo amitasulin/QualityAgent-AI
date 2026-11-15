@@ -38,7 +38,9 @@ import {
   type FormValue,
   type FormValues,
 } from '@/components/master-data/EntityFormFields';
+import { ExportButton } from '@/components/export/ExportButton';
 import { api } from '@/lib/api';
+import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { formatDate } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { usePermissions } from '@/lib/permissions';
@@ -76,6 +78,15 @@ const DEFAULT_QUERY: ListQuery = {
   sortBy: 'created_at',
   sortOrder: 'desc',
 };
+
+const documentExportColumns: ExportColumn<Document>[] = [
+  { header: 'קוד', value: (doc) => doc.code },
+  { header: 'כותרת', value: (doc) => doc.title },
+  { header: 'קטגוריה', value: (doc) => doc.category ?? '' },
+  { header: 'סטטוס', value: (doc) => DOCUMENT_STATUS_LABELS[doc.status] ?? doc.status },
+  { header: 'תוקף מ', value: (doc) => formatExportDate(doc.effective_from) },
+  { header: 'תוקף עד', value: (doc) => formatExportDate(doc.effective_until) },
+];
 
 export default function DocumentsPage() {
   const { canManageDocuments } = usePermissions();
@@ -115,6 +126,21 @@ export default function DocumentsPage() {
       setLoading(false);
     }
   }, [query, debouncedSearch, status]);
+
+  const fetchAllDocuments = useCallback(
+    () =>
+      collectAllPages<Document>((page, pageSize) =>
+        api.getDocuments({
+          page,
+          page_size: pageSize,
+          sort_by: query.sortBy,
+          sort_order: query.sortOrder,
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          ...(status ? { status } : {}),
+        })
+      ),
+    [query.sortBy, query.sortOrder, debouncedSearch, status]
+  );
 
   useEffect(() => {
     fetchDocuments();
@@ -200,6 +226,12 @@ export default function DocumentsPage() {
                 }}
                 options={[{ value: '', label: 'כל הסטטוסים' }, ...DOCUMENT_STATUS_OPTIONS]}
                 className="w-48"
+              />
+              <ExportButton
+                columns={documentExportColumns}
+                fetchRows={fetchAllDocuments}
+                filename="documents"
+                disabled={loading || total === 0}
               />
             </div>
           </CardBody>

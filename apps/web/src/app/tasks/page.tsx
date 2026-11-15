@@ -38,9 +38,12 @@ import { ConfirmDialog } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { CreateEntityModal } from '@/components/master-data/CreateEntityModal';
 import type { FieldDef, FormValues } from '@/components/master-data/EntityFormFields';
+import { ExportButton } from '@/components/export/ExportButton';
 import { api } from '@/lib/api';
+import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { usePermissions } from '@/lib/permissions';
+import { SEARCH_STATUS_LABELS } from '@/lib/search';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate } from '@/lib/utils';
 
@@ -113,6 +116,27 @@ const typeLabels: Record<string, string> = {
   audit: 'ביקורת',
   custom: 'אחר',
 };
+
+const PRIORITY_LABELS: Record<string, string> = {
+  urgent: 'דחוף',
+  high: 'גבוה',
+  medium: 'בינוני',
+  low: 'נמוך',
+};
+
+function buildTaskExportColumns(users: UserOption[]): ExportColumn<Task>[] {
+  const nameById = new Map(users.map((user) => [user.id, user.full_name]));
+  return [
+    { header: 'כותרת', value: (task) => task.title },
+    { header: 'תיאור', value: (task) => task.description ?? '' },
+    { header: 'סוג', value: (task) => (task.task_type ? typeLabels[task.task_type] ?? task.task_type : '') },
+    { header: 'סטטוס', value: (task) => SEARCH_STATUS_LABELS[task.status] ?? task.status },
+    { header: 'עדיפות', value: (task) => PRIORITY_LABELS[task.priority] ?? task.priority },
+    { header: 'אחראי', value: (task) => (task.assignee_id ? nameById.get(task.assignee_id) ?? '' : '') },
+    { header: 'תאריך יעד', value: (task) => formatExportDate(task.due_date) },
+    { header: 'הושלמה ב', value: (task) => formatExportDate(task.completed_at) },
+  ];
+}
 
 const typeOptions = Object.entries(typeLabels).map(([value, label]) => ({ value, label }));
 
@@ -230,6 +254,34 @@ export default function TasksPage() {
       setLoading(false);
     }
   }, [filters, debouncedSearch]);
+
+  const fetchAllTasks = useCallback(
+    () =>
+      collectAllPages<Task>((page, pageSize) =>
+        api.getTasks({
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(filters.priority ? { priority: filters.priority } : {}),
+          ...(filters.assignee_id ? { assignee_id: filters.assignee_id } : {}),
+          ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
+          ...(filters.my_tasks ? { my_tasks: true } : {}),
+          ...(filters.overdue ? { overdue: true } : {}),
+          sort_by: filters.sort_by,
+          sort_order: filters.sort_order,
+          page,
+          page_size: pageSize,
+        })
+      ),
+    [
+      filters.status,
+      filters.priority,
+      filters.assignee_id,
+      filters.my_tasks,
+      filters.overdue,
+      filters.sort_by,
+      filters.sort_order,
+      debouncedSearch,
+    ]
+  );
 
   const fetchStats = useCallback(async () => {
     try {
@@ -466,6 +518,12 @@ export default function TasksPage() {
                   <Filter className="h-4 w-4" />
                   איפוס
                 </Button>
+                <ExportButton
+                  columns={buildTaskExportColumns(users)}
+                  fetchRows={fetchAllTasks}
+                  filename="tasks"
+                  disabled={loading || pagination.total === 0}
+                />
               </div>
             </div>
           </CardBody>

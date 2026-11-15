@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronLeft,
-  Download,
   Filter,
   Flame,
   Plus,
@@ -33,9 +32,12 @@ import { KpiCard } from '@/components/ui/KpiCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/Toast';
+import { ExportButton } from '@/components/export/ExportButton';
 import { api } from '@/lib/api';
+import { collectAllPages, formatExportDate, type ExportColumn } from '@/lib/export';
 import { getApiErrorMessage } from '@/lib/master-data';
 import { usePermissions } from '@/lib/permissions';
+import { SEARCH_STATUS_LABELS } from '@/lib/search';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatRelativeTime, formatDate } from '@/lib/utils';
 
@@ -92,6 +94,24 @@ const severityOptions = [
   { value: 'major', label: 'חמור' },
   { value: 'minor', label: 'קל' },
   { value: 'observation', label: 'הערה' },
+];
+
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: 'קריטי',
+  major: 'חמור',
+  minor: 'קל',
+  observation: 'הערה',
+};
+
+const ncrExportColumns: ExportColumn<NCR>[] = [
+  { header: 'מספר', value: (ncr) => ncr.number },
+  { header: 'כותרת', value: (ncr) => ncr.title },
+  { header: 'תיאור', value: (ncr) => ncr.description },
+  { header: 'סטטוס', value: (ncr) => SEARCH_STATUS_LABELS[ncr.status] ?? ncr.status },
+  { header: 'חומרה', value: (ncr) => SEVERITY_LABELS[ncr.severity] ?? ncr.severity },
+  { header: 'אצווה', value: (ncr) => ncr.lot_number ?? '' },
+  { header: 'קוד פגם', value: (ncr) => ncr.defect_code ?? '' },
+  { header: 'תאריך זיהוי', value: (ncr) => formatExportDate(ncr.detected_at) },
 ];
 
 export default function NonconformitiesPage() {
@@ -207,28 +227,21 @@ export default function NonconformitiesPage() {
     }
   };
 
-  const handleExport = () => {
-    const header = ['מספר', 'כותרת', 'סטטוס', 'חומרה', 'אצווה', 'קוד פגם', 'תאריך זיהוי'];
-    const rows = ncrs.map((n) => [
-      n.number,
-      n.title,
-      n.status,
-      n.severity,
-      n.lot_number || '',
-      n.defect_code || '',
-      n.detected_at,
-    ]);
-    const csv = [header, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\r\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'nonconformities.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const fetchAllNcrs = useCallback(
+    () =>
+      collectAllPages<NCR>((page, pageSize) =>
+        api.getNonconformities({
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(filters.severity ? { severity: filters.severity } : {}),
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          page,
+          page_size: pageSize,
+        })
+      ),
+    [filters.status, filters.severity, debouncedSearch, sortBy, sortOrder]
+  );
 
   const hasActiveFilters = Boolean(filters.search || filters.status || filters.severity);
 
@@ -323,10 +336,12 @@ export default function NonconformitiesPage() {
                   <Filter className="h-4 w-4" />
                   איפוס
                 </Button>
-                <Button variant="secondary" onClick={handleExport} disabled={loading || ncrs.length === 0}>
-                  <Download className="h-4 w-4" />
-                  ייצוא
-                </Button>
+                <ExportButton
+                  columns={ncrExportColumns}
+                  fetchRows={fetchAllNcrs}
+                  filename="nonconformities"
+                  disabled={loading || pagination.total === 0}
+                />
               </div>
             </div>
           </CardBody>
