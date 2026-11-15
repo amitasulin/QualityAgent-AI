@@ -23,6 +23,12 @@ describe('audit labels', () => {
     expect(actionTone('custom_action')).toBe('secondary');
   });
 
+  it('normalises legacy uppercase actions from seeded data', () => {
+    expect(actionLabel('CREATE')).toBe('יצירה');
+    expect(actionLabel('ASSIGN')).toBe('הקצאה');
+    expect(actionTone('CREATE_RECOMMENDATION')).toBe('primary');
+  });
+
   it('exposes options for the filters', () => {
     expect(ENTITY_OPTIONS.every((option) => option.value && option.label)).toBe(true);
     expect(ACTION_OPTIONS.some((option) => option.value === 'delete')).toBe(true);

@@ -33,9 +33,9 @@ async def list_audit_events(
     """List audit events for the current organization, newest first."""
     filters = [AuditEvent.tenant_id == tenant.id]
     if entity_type:
-        filters.append(AuditEvent.entity_type == entity_type)
+        filters.append(func.lower(AuditEvent.entity_type) == entity_type.lower())
     if action:
-        filters.append(AuditEvent.action == action)
+        filters.append(func.lower(AuditEvent.action) == action.lower())
     if actor_id:
         filters.append(AuditEvent.actor_id == actor_id)
     if date_from:

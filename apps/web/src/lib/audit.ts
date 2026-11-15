@@ -31,6 +31,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   attachment: 'קובץ מצורף',
   organization: 'ארגון',
   agent: 'סוכן AI',
+  agent_recommendation: 'המלצת סוכן',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -54,6 +55,8 @@ export const ACTION_LABELS: Record<string, string> = {
   archive: 'ארכוב',
   run: 'הרצת סוכן',
   change_password: 'שינוי סיסמה',
+  assign: 'הקצאה',
+  create_recommendation: 'יצירת המלצה',
 };
 
 export const ACTION_TONES: Record<
@@ -80,6 +83,8 @@ export const ACTION_TONES: Record<
   archive: 'secondary',
   run: 'primary',
   change_password: 'warning',
+  assign: 'primary',
+  create_recommendation: 'primary',
 };
 
 export const ENTITY_OPTIONS = Object.entries(ENTITY_LABELS).map(([value, label]) => ({
@@ -93,17 +98,17 @@ export const ACTION_OPTIONS = Object.entries(ACTION_LABELS).map(([value, label])
 }));
 
 export function entityLabel(entityType: string): string {
-  return ENTITY_LABELS[entityType] || entityType;
+  return ENTITY_LABELS[entityType] || ENTITY_LABELS[entityType.toLowerCase()] || entityType;
 }
 
 export function actionLabel(action: string): string {
-  return ACTION_LABELS[action] || action;
+  return ACTION_LABELS[action] || ACTION_LABELS[action.toLowerCase()] || action;
 }
 
 export function actionTone(
   action: string
 ): 'primary' | 'success' | 'warning' | 'danger' | 'secondary' {
-  return ACTION_TONES[action] || 'secondary';
+  return ACTION_TONES[action] || ACTION_TONES[action.toLowerCase()] || 'secondary';
 }
 
 /** Shorten a UUID for table display without losing the ability to identify it. */
