@@ -8,6 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import settings
 from app.core.audit import AuditMiddleware
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.database import init_db, close_db
 from app.core.exceptions import register_exception_handlers
 from app.api.router import api_router
@@ -57,6 +58,9 @@ app.add_middleware(AuditMiddleware)
 
 # Compress JSON responses (list/dashboard payloads) for slower connections.
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# Baseline security headers on every response (including errors and preflight).
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Exception handlers
 register_exception_handlers(app)
