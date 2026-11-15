@@ -9,14 +9,11 @@ when, from where, and through which endpoint. It is the baseline required by
 quality-management systems (ISO 9001/13485) and can later be enriched with
 field-level diffs inside the services.
 """
+import json
 import logging
 import re
 import uuid
 from typing import Optional
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import verify_token
@@ -76,6 +73,9 @@ UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
 
+# Only buffer small JSON bodies; exports and file downloads are never parsed.
+MAX_CAPTURED_BODY = 512 * 1024
+
 
 def _first_uuid(path: str) -> Optional[uuid.UUID]:
     match = UUID_RE.search(path)
@@ -103,15 +103,35 @@ def _action_for(method: str, path: str) -> str:
         tail = path.rstrip("/").split("/")[-1]
         if tail in ACTION_ALIASES:
             return ACTION_ALIASES[tail]
-        if UUID_RE.fullmatch(tail):
-            return "create"
         return "create"
     return method.lower()
 
 
-def _auth_context(request: Request) -> tuple[Optional[uuid.UUID], Optional[uuid.UUID]]:
+def _entity_id_from_body(body: bytes) -> Optional[uuid.UUID]:
+    """Read the created/updated record id from a JSON response body."""
+    if not body:
+        return None
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for key in ("id", "entity_id"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            try:
+                return uuid.UUID(value)
+            except ValueError:
+                continue
+    return None
+
+
+def _auth_context(
+    headers: dict[str, str],
+) -> tuple[Optional[uuid.UUID], Optional[uuid.UUID]]:
     """Read (user_id, tenant_id) from the bearer token without failing the request."""
-    header = request.headers.get("authorization") or ""
+    header = headers.get("authorization") or ""
     if not header.startswith("Bearer "):
         return None, None
     payload = verify_token(header.split(" ", 1)[1], "access")
@@ -132,21 +152,13 @@ async def _write_event(
     action: str,
     entity_type: str,
     entity_id: Optional[uuid.UUID],
-    request: Request,
+    method: str,
+    path: str,
     status_code: int,
+    ip_address: Optional[str],
+    user_agent: Optional[str],
+    correlation_id: Optional[uuid.UUID],
 ) -> None:
-    correlation_id = None
-    raw_correlation = request.headers.get("x-request-id")
-    if raw_correlation:
-        try:
-            correlation_id = uuid.UUID(raw_correlation)
-        except ValueError:
-            correlation_id = None
-
-    user_agent = request.headers.get("user-agent")
-    if user_agent:
-        user_agent = user_agent[:1000]
-
     async with AsyncSessionLocal() as session:
         try:
             session.add(
@@ -159,11 +171,11 @@ async def _write_event(
                     entity_type=entity_type,
                     entity_id=entity_id,
                     new_values={
-                        "method": request.method,
-                        "path": request.url.path,
+                        "method": method,
+                        "path": path,
                         "status": status_code,
                     },
-                    ip_address=request.client.host if request.client else None,
+                    ip_address=ip_address,
                     user_agent=user_agent,
                     correlation_id=correlation_id,
                 )
@@ -171,30 +183,83 @@ async def _write_event(
             await session.commit()
         except Exception:
             await session.rollback()
-            logger.exception("Failed to write audit event for %s %s", request.method, request.url.path)
+            logger.exception("Failed to write audit event for %s %s", method, path)
 
 
-class AuditMiddleware(BaseHTTPMiddleware):
-    """Record successful mutations in the audit trail."""
+class AuditMiddleware:
+    """Record successful mutations in the audit trail.
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
+    Implemented as a pure ASGI middleware (not ``BaseHTTPMiddleware``) so the
+    response body can be inspected: the id of a freshly created record only
+    exists in the response JSON.
+    """
 
-        if (
-            request.method not in MUTATING_METHODS
-            or not request.url.path.startswith("/api/v1")
-            or request.url.path in SKIP_PATHS
-            or response.status_code >= 400
-        ):
-            return response
+    def __init__(self, app):
+        self.app = app
 
-        user_id, tenant_id = _auth_context(request)
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("method") not in MUTATING_METHODS:
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope.get("path", "")
+        method: str = scope.get("method", "")
+        if not path.startswith("/api/v1") or path in SKIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        response_start: dict = {}
+        chunks: list[bytes] = []
+        captured_size = 0
+        capture_failed = False
+
+        async def send_wrapper(message):
+            nonlocal captured_size, capture_failed
+            if message["type"] == "http.response.start":
+                response_start.update(message)
+            elif message["type"] == "http.response.body" and not capture_failed:
+                body = message.get("body", b"")
+                captured_size += len(body)
+                if captured_size > MAX_CAPTURED_BODY:
+                    capture_failed = True
+                    chunks.clear()
+                else:
+                    chunks.append(body)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+        status_code = response_start.get("status", 0)
+        if status_code >= 400:
+            return
+
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        user_id, tenant_id = _auth_context(headers)
         if not tenant_id:
-            return response
+            return
 
-        entity_type, entity_id = _entity_from_path(request.url.path)
-        action = _action_for(request.method, request.url.path)
+        entity_type, entity_id = _entity_from_path(path)
+        if entity_id is None and not capture_failed:
+            entity_id = _entity_id_from_body(b"".join(chunks))
 
+        action = _action_for(method, path)
+
+        correlation_id = None
+        raw_correlation = headers.get("x-request-id")
+        if raw_correlation:
+            try:
+                correlation_id = uuid.UUID(raw_correlation)
+            except ValueError:
+                correlation_id = None
+
+        user_agent = headers.get("user-agent")
+        if user_agent:
+            user_agent = user_agent[:1000]
+
+        client = scope.get("client")
         try:
             await _write_event(
                 tenant_id=tenant_id,
@@ -202,11 +267,13 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 action=action,
                 entity_type=entity_type,
                 entity_id=entity_id,
-                request=request,
-                status_code=response.status_code,
+                method=method,
+                path=path,
+                status_code=status_code,
+                ip_address=client[0] if client else None,
+                user_agent=user_agent,
+                correlation_id=correlation_id,
             )
         except Exception:
             # Never break a successful business request because auditing failed.
-            logger.exception("Audit middleware failed for %s %s", request.method, request.url.path)
-
-        return response
+            logger.exception("Audit middleware failed for %s %s", method, path)

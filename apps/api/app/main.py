@@ -51,11 +51,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Audit trail: one row per successful mutating API call. Registered before
+# GZip so it can read the uncompressed JSON body (and the created record id).
+app.add_middleware(AuditMiddleware)
+
 # Compress JSON responses (list/dashboard payloads) for slower connections.
 app.add_middleware(GZipMiddleware, minimum_size=500)
-
-# Audit trail: one row per successful mutating API call.
-app.add_middleware(AuditMiddleware)
 
 # Exception handlers
 register_exception_handlers(app)

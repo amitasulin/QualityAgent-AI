@@ -1,7 +1,8 @@
 """Audit trail path parsing helpers (no database required)."""
+import json
 import uuid
 
-from app.core.audit import _action_for, _entity_from_path, _first_uuid
+from app.core.audit import _action_for, _entity_from_path, _entity_id_from_body, _first_uuid
 
 SAMPLE_ID = "8d4a6a39-bc2f-46ab-84b8-0c092ca1c887"
 
@@ -43,3 +44,15 @@ def test_action_for_recognises_named_actions():
     assert _action_for("POST", f"/api/v1/corrective-actions/{SAMPLE_ID}/verify") == "verify"
     assert _action_for("POST", f"/api/v1/attachments") == "upload"
     assert _action_for("POST", "/api/v1/auth/change-password") == "change_password"
+
+
+def test_entity_id_from_body_reads_created_record_id():
+    body = json.dumps({"id": SAMPLE_ID, "title": "משימה"}).encode()
+    assert str(_entity_id_from_body(body)) == SAMPLE_ID
+
+
+def test_entity_id_from_body_ignores_invalid_payloads():
+    assert _entity_id_from_body(b"") is None
+    assert _entity_id_from_body(b"not json") is None
+    assert _entity_id_from_body(json.dumps([SAMPLE_ID]).encode()) is None
+    assert _entity_id_from_body(json.dumps({"id": "not-a-uuid"}).encode()) is None
